@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  zerizeha-postgres:
+    image: postgres:16-alpine
+    container_name: zerizeha-postgres
+    environment:
+      POSTGRES_DB: zerizeha
+      POSTGRES_USER: zerizeha
+      POSTGRES_PASSWORD: zerizeha
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

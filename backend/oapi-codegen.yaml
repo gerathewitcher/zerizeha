@@ -1,0 +1,6 @@
+package: api
+generate:
+  fiber-server: true
+  models: true
+  embedded-spec: true
+output: internal/api/oapi.gen.go

@@ -1,0 +1,722 @@
+openapi: 3.0.3
+info:
+  title: Zerizeha API
+  version: "1.0"
+  description: Zerizeha backend API
+servers:
+  - url: /
+paths:
+  /api/auth/health:
+    get:
+      operationId: Health
+      summary: health check
+      description: health check
+      tags:
+        - Auth
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+  /api/auth/google:
+    get:
+      operationId: GoogleLogin
+      summary: start google oauth
+      description: redirects to Google OAuth
+      tags:
+        - Auth
+      responses:
+        '307':
+          description: Temporary Redirect
+  /api/auth/google/callback:
+    get:
+      operationId: GoogleCallback
+      summary: google oauth callback
+      description: exchanges code, returns tokens
+      tags:
+        - Auth
+      parameters:
+        - in: query
+          name: code
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: state
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+  /api/auth/github:
+    get:
+      operationId: GithubLogin
+      summary: start github oauth
+      description: redirects to GitHub OAuth
+      tags:
+        - Auth
+      responses:
+        '307':
+          description: Temporary Redirect
+  /api/auth/github/callback:
+    get:
+      operationId: GithubCallback
+      summary: github oauth callback
+      description: exchanges code, returns tokens
+      tags:
+        - Auth
+      parameters:
+        - in: query
+          name: code
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: state
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+  /api/auth/refresh:
+    post:
+      operationId: Refresh
+      summary: refresh tokens
+      description: exchanges refresh token for new token pair
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+
+  /api/spaces:
+    get:
+      operationId: ListSpaces
+      summary: list spaces
+      tags:
+        - Spaces
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Space'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+    post:
+      operationId: CreateSpace
+      summary: create space
+      tags:
+        - Spaces
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SpaceToCreate'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+
+  /api/spaces/{id}:
+    get:
+      operationId: GetSpaceByID
+      summary: get space by id
+      tags:
+        - Spaces
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Space'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+
+  /api/spaces/{id}/channels:
+    get:
+      operationId: ListChannelsBySpace
+      summary: list channels by space id
+      tags:
+        - Channels
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Channel'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+    patch:
+      operationId: UpdateSpace
+      summary: update space
+      tags:
+        - Spaces
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SpaceToUpdate'
+      responses:
+        '204':
+          description: No Content
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+    delete:
+      operationId: DeleteSpace
+      summary: delete space
+      tags:
+        - Spaces
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: No Content
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+
+  /api/channels:
+    post:
+      operationId: CreateChannel
+      summary: create channel
+      tags:
+        - Channels
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelToCreate'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+
+  /api/channels/{id}:
+    get:
+      operationId: GetChannelByID
+      summary: get channel by id
+      tags:
+        - Channels
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Channel'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+    patch:
+      operationId: UpdateChannel
+      summary: update channel
+      tags:
+        - Channels
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelToUpdate'
+      responses:
+        '204':
+          description: No Content
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+    delete:
+      operationId: DeleteChannel
+      summary: delete channel
+      tags:
+        - Channels
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: No Content
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+
+  /api/space-members:
+    post:
+      operationId: CreateSpaceMember
+      summary: create space member
+      tags:
+        - Spaces
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SpaceMemberToCreate'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+
+  /api/space-members/{id}:
+    delete:
+      operationId: DeleteSpaceMember
+      summary: delete space member
+      tags:
+        - Spaces
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: No Content
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+  schemas:
+    IdResponse:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+    StatusResponse:
+      type: object
+      additionalProperties:
+        type: string
+    ErrorMap:
+      type: object
+      additionalProperties:
+        type: string
+    RefreshRequest:
+      type: object
+      properties:
+        refresh_token:
+          type: string
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        token_type:
+          type: string
+        expires_in:
+          type: integer
+          format: int64
+        user:
+          $ref: '#/components/schemas/User'
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    Space:
+      type: object
+      required:
+        - id
+        - author_id
+        - name
+        - created_at
+      properties:
+        id:
+          type: string
+        author_id:
+          type: string
+        name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    Channel:
+      type: object
+      required:
+        - id
+        - author_id
+        - space_id
+        - name
+        - channel_type
+        - created_at
+      properties:
+        id:
+          type: string
+        author_id:
+          type: string
+        space_id:
+          type: string
+        name:
+          type: string
+        channel_type:
+          type: string
+          enum: [text, voice]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    SpaceMember:
+      type: object
+      required:
+        - id
+        - space_id
+        - user_id
+        - created_at
+      properties:
+        id:
+          type: string
+        space_id:
+          type: string
+        user_id:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    SpaceToCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+      additionalProperties: false
+
+    SpaceToUpdate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+      additionalProperties: false
+
+    ChannelToCreate:
+      type: object
+      required: [space_id, name, channel_type]
+      properties:
+        space_id:
+          type: string
+        name:
+          type: string
+        channel_type:
+          type: string
+          enum: [text, voice]
+      additionalProperties: false
+
+    ChannelToUpdate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+      additionalProperties: false
+
+    SpaceMemberToCreate:
+      type: object
+      required: [space_id, user_id]
+      properties:
+        space_id:
+          type: string
+        user_id:
+          type: string
+      additionalProperties: false
