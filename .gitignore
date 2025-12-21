@@ -82,3 +82,7 @@ thumb
 sketch
 
 # End of https://www.toptal.com/developers/gitignore/api/go,react,nextjs
+
+# local tools / build outputs
+bin/
+**/bin/
