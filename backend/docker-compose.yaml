@@ -30,7 +30,7 @@ services:
     network_mode: "host"
     volumes:
     #   - "./janus-conf/janus.transport.http.jcfg:/usr/local/etc/janus/janus.transport.http.jcfg"  # Enable adminapi config
-    #   - "./janus-conf/janus.jcfg:/usr/local/etc/janus/janus.jcfg"
+       - "./janus-conf/janus.jcfg:/usr/local/etc/janus/janus.jcfg"
     #   - "./janus-conf/janus.eventhandler.sampleevh.jcfg:/usr/local/etc/janus/janus.eventhandler.sampleevh.jcfg"
        - "./janus-conf/janus.plugin.videoroom.jcfg:/usr/local/etc/janus/janus.plugin.videoroom.jcfg"
     restart: always

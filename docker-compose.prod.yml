@@ -23,6 +23,7 @@ services:
       - "8188:8188"
       - "10000-10200:10000-10200/udp"
     volumes:
+      - ./backend/janus-conf/janus.jcfg:/usr/local/etc/janus/janus.jcfg
       - ./backend/janus-conf/janus.plugin.videoroom.jcfg:/usr/local/etc/janus/janus.plugin.videoroom.jcfg
     restart: unless-stopped
 

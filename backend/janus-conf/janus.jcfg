@@ -1,0 +1,9 @@
+general: {
+	# External/public IP address of this host.
+	# Replace with your server public IP.
+	nat_1_1_mapping = "45.83.143.129"
+
+	# STUN helps clients behind NAT discover their public address.
+	stun_server = "stun.l.google.com"
+	stun_port = 19302
+}
