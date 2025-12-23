@@ -89,30 +89,23 @@ func (h *Handler) VoiceWebRTCBootstrap(c *fiber.Ctx, id string) error {
 		slog.Int64("publisher_handle_id", pubHandleID),
 	)
 
+	if err := h.janus.EnsureRoom(ctx, sessionID, pubHandleID, channelID); err != nil {
+		logger.Error("webrtc bootstrap: ensure room failed",
+			slog.String("user_id", userID),
+			slog.String("channel_id", channelID),
+			slog.Int64("janus_session_id", sessionID),
+			slog.Int64("publisher_handle_id", pubHandleID),
+			slog.String("err", err.Error()),
+		)
+		_ = h.janus.DestroySession(context.Background(), sessionID)
+		return writeError(c, err)
+	}
+
 	// Use userID as display so frontend can map publisher feed to user.
 	selfFeedID, publishers, err := h.janus.JoinPublisher(ctx, sessionID, pubHandleID, channelID, userID)
 	if err != nil {
 		var vrErr *janus.VideoroomError
 		if errors.As(err, &vrErr) && vrErr.Code == 426 {
-			logger.Info("webrtc bootstrap: janus room missing, creating",
-				slog.String("user_id", userID),
-				slog.String("channel_id", channelID),
-				slog.Int64("janus_session_id", sessionID),
-				slog.Int64("publisher_handle_id", pubHandleID),
-				slog.Int("janus_code", vrErr.Code),
-			)
-			if err := h.janus.EnsureRoom(ctx, sessionID, pubHandleID, channelID); err != nil {
-				logger.Error("webrtc bootstrap: ensure room failed",
-					slog.String("user_id", userID),
-					slog.String("channel_id", channelID),
-					slog.Int64("janus_session_id", sessionID),
-					slog.Int64("publisher_handle_id", pubHandleID),
-					slog.String("err", err.Error()),
-				)
-				_ = h.janus.DestroySession(context.Background(), sessionID)
-				return writeError(c, err)
-			}
-
 			selfFeedID, publishers, err = h.janus.JoinPublisher(ctx, sessionID, pubHandleID, channelID, userID)
 		}
 		if err != nil {
