@@ -20,6 +20,33 @@ type WSEnvelope =
 
 type RemoteTrack = { feedId: string; stream: MediaStream };
 
+const parseUrls = (raw: string | undefined): string[] =>
+  (raw ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+const buildIceServers = (): RTCIceServer[] => {
+  const stunUrls = parseUrls(
+    process.env.NEXT_PUBLIC_STUN_URLS ?? "stun:stun.l.google.com:19302",
+  );
+  const turnUrls = parseUrls(process.env.NEXT_PUBLIC_TURN_URLS);
+  const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME;
+  const turnCredential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
+
+  const servers: RTCIceServer[] = [];
+  if (stunUrls.length) servers.push({ urls: stunUrls });
+  if (turnUrls.length && turnUsername && turnCredential) {
+    servers.push({
+      urls: turnUrls,
+      username: turnUsername,
+      credential: turnCredential,
+    });
+  }
+
+  return servers;
+};
+
 function RemoteAudio({ stream }: { stream: MediaStream }) {
   const ref = useRef<HTMLAudioElement | null>(null);
 
@@ -246,7 +273,9 @@ export default function VoiceWebRTC({
     }
 
     let cancelled = false;
-    const publisherPc = new RTCPeerConnection();
+    const rtcConfig = { iceServers: buildIceServers() };
+
+    const publisherPc = new RTCPeerConnection(rtcConfig);
     publisherPcRef.current = publisherPc;
     const subscriberPcs = new Map<string, RTCPeerConnection>();
     const subscriberIceBuffer = new Map<string, any[]>();
@@ -446,7 +475,7 @@ export default function VoiceWebRTC({
       }
       if (cancelled) return;
 
-      const pc = new RTCPeerConnection();
+      const pc = new RTCPeerConnection(rtcConfig);
       subscriberPcs.set(feedId, pc);
 
       pc.ontrack = (ev) => {

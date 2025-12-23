@@ -34,9 +34,10 @@ Expected callbacks in OAuth providers:
 - `https://api.zzeha.ru/api/auth/github/callback`
 - `https://api.zzeha.ru/api/auth/yandex/callback`
 
-## Firewall notes for Janus
-Janus uses UDP media ports. Default range is usually `10000-10200/udp`.
-Make sure the server firewall allows that range, or adjust the range in Janus config and in `docker-compose.prod.yml`.
+## Firewall notes for Janus + TURN
+- Janus uses UDP media ports (default `10000-10200/udp`).
+- TURN (coturn) uses `3478/udp` and a relay range (default `49160-49200/udp` in `docker-compose.prod.yml`).
+Make sure the server firewall allows these ranges, or adjust them to your policy.
 
 ## One-time manual start (optional)
 ```bash
