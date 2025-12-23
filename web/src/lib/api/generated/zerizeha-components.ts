@@ -7,6 +7,46 @@ import type * as Fetcher from "./zerizeha-fetcher";
 import { zerizehaFetch, ZerizehaFetcherExtraProps } from "./zerizeha-fetcher";
 import type * as Schemas from "./zerizeha-schemas";
 
+export type WebRTCWebSocketPathParams = {
+  connectionId: string;
+};
+
+export type WebRTCWebSocketError = Fetcher.ErrorWrapper<
+  | {
+      status: 400;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type WebRTCWebSocketVariables = {
+  pathParams: WebRTCWebSocketPathParams;
+} & ZerizehaFetcherExtraProps;
+
+/**
+ * WebSocket upgrade endpoint for Janus signaling (offer/answer/trickle)
+ */
+export const webRTCWebSocket = (
+  variables: WebRTCWebSocketVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<
+    undefined,
+    WebRTCWebSocketError,
+    undefined,
+    {},
+    {},
+    WebRTCWebSocketPathParams
+  >({
+    url: "/api/ws/webrtc/{connectionId}",
+    method: "get",
+    ...variables,
+    signal,
+  });
+
 export type HealthError = Fetcher.ErrorWrapper<undefined>;
 
 export type HealthVariables = ZerizehaFetcherExtraProps;
@@ -130,6 +170,60 @@ export const githubCallback = (
     {}
   >({ url: "/api/auth/github/callback", method: "get", ...variables, signal });
 
+export type YandexLoginError = Fetcher.ErrorWrapper<undefined>;
+
+export type YandexLoginVariables = ZerizehaFetcherExtraProps;
+
+/**
+ * redirects to Yandex OAuth
+ */
+export const yandexLogin = (
+  variables: YandexLoginVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<undefined, YandexLoginError, undefined, {}, {}, {}>({
+    url: "/api/auth/yandex",
+    method: "get",
+    ...variables,
+    signal,
+  });
+
+export type YandexCallbackQueryParams = {
+  code: string;
+  state: string;
+};
+
+export type YandexCallbackError = Fetcher.ErrorWrapper<
+  | {
+      status: 400;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type YandexCallbackVariables = {
+  queryParams: YandexCallbackQueryParams;
+} & ZerizehaFetcherExtraProps;
+
+/**
+ * exchanges code, returns tokens
+ */
+export const yandexCallback = (
+  variables: YandexCallbackVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<
+    Schemas.TokenResponse,
+    YandexCallbackError,
+    undefined,
+    {},
+    YandexCallbackQueryParams,
+    {}
+  >({ url: "/api/auth/yandex/callback", method: "get", ...variables, signal });
+
 export type RefreshError = Fetcher.ErrorWrapper<
   | {
       status: 400;
@@ -161,6 +255,346 @@ export const refresh = (variables: RefreshVariables, signal?: AbortSignal) =>
     {},
     {}
   >({ url: "/api/auth/refresh", method: "post", ...variables, signal });
+
+export type GetMeError = Fetcher.ErrorWrapper<
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type GetMeVariables = ZerizehaFetcherExtraProps;
+
+export const getMe = (variables: GetMeVariables, signal?: AbortSignal) =>
+  zerizehaFetch<Schemas.User, GetMeError, undefined, {}, {}, {}>({
+    url: "/api/me",
+    method: "get",
+    ...variables,
+    signal,
+  });
+
+export type SearchUsersQueryParams = {
+  query?: string;
+  /**
+   * @minimum 1
+   * @maximum 50
+   */
+  limit?: number;
+  cursor?: string;
+};
+
+export type SearchUsersError = Fetcher.ErrorWrapper<
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type SearchUsersVariables = {
+  queryParams?: SearchUsersQueryParams;
+} & ZerizehaFetcherExtraProps;
+
+export const searchUsers = (
+  variables: SearchUsersVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<
+    Schemas.UserSearchPage,
+    SearchUsersError,
+    undefined,
+    {},
+    SearchUsersQueryParams,
+    {}
+  >({ url: "/api/users/search", method: "get", ...variables, signal });
+
+export type ListAdminUsersQueryParams = {
+  query?: string;
+  /**
+   * @minimum 1
+   * @maximum 50
+   */
+  limit?: number;
+  cursor?: string;
+  confirmed?: boolean;
+};
+
+export type ListAdminUsersError = Fetcher.ErrorWrapper<
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 403;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type ListAdminUsersVariables = {
+  queryParams?: ListAdminUsersQueryParams;
+} & ZerizehaFetcherExtraProps;
+
+export const listAdminUsers = (
+  variables: ListAdminUsersVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<
+    Schemas.AdminUsersPage,
+    ListAdminUsersError,
+    undefined,
+    {},
+    ListAdminUsersQueryParams,
+    {}
+  >({ url: "/api/admin/users", method: "get", ...variables, signal });
+
+export type UpdateAdminUserPathParams = {
+  id: string;
+};
+
+export type UpdateAdminUserError = Fetcher.ErrorWrapper<
+  | {
+      status: 400;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 403;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 404;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type UpdateAdminUserVariables = {
+  body: Schemas.AdminUserToUpdate;
+  pathParams: UpdateAdminUserPathParams;
+} & ZerizehaFetcherExtraProps;
+
+export const updateAdminUser = (
+  variables: UpdateAdminUserVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<
+    undefined,
+    UpdateAdminUserError,
+    Schemas.AdminUserToUpdate,
+    {},
+    {},
+    UpdateAdminUserPathParams
+  >({ url: "/api/admin/users/{id}", method: "patch", ...variables, signal });
+
+export type JoinVoiceChannelPathParams = {
+  id: string;
+};
+
+export type JoinVoiceChannelError = Fetcher.ErrorWrapper<
+  | {
+      status: 400;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 403;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 404;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type JoinVoiceChannelVariables = {
+  pathParams: JoinVoiceChannelPathParams;
+} & ZerizehaFetcherExtraProps;
+
+export const joinVoiceChannel = (
+  variables: JoinVoiceChannelVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<
+    undefined,
+    JoinVoiceChannelError,
+    undefined,
+    {},
+    {},
+    JoinVoiceChannelPathParams
+  >({
+    url: "/api/voice/channels/{id}/join",
+    method: "post",
+    ...variables,
+    signal,
+  });
+
+export type ListVoiceMembersPathParams = {
+  id: string;
+};
+
+export type ListVoiceMembersError = Fetcher.ErrorWrapper<
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 403;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 404;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type ListVoiceMembersResponse = Schemas.VoiceMember[];
+
+export type ListVoiceMembersVariables = {
+  pathParams: ListVoiceMembersPathParams;
+} & ZerizehaFetcherExtraProps;
+
+export const listVoiceMembers = (
+  variables: ListVoiceMembersVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<
+    ListVoiceMembersResponse,
+    ListVoiceMembersError,
+    undefined,
+    {},
+    {},
+    ListVoiceMembersPathParams
+  >({
+    url: "/api/voice/channels/{id}/members",
+    method: "get",
+    ...variables,
+    signal,
+  });
+
+export type VoiceWebRTCBootstrapPathParams = {
+  id: string;
+};
+
+export type VoiceWebRTCBootstrapError = Fetcher.ErrorWrapper<
+  | {
+      status: 400;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 403;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 404;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type VoiceWebRTCBootstrapVariables = {
+  pathParams: VoiceWebRTCBootstrapPathParams;
+} & ZerizehaFetcherExtraProps;
+
+export const voiceWebRTCBootstrap = (
+  variables: VoiceWebRTCBootstrapVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<
+    Schemas.WebRTCBootstrapResponse,
+    VoiceWebRTCBootstrapError,
+    undefined,
+    {},
+    {},
+    VoiceWebRTCBootstrapPathParams
+  >({
+    url: "/api/channels/voice/{id}/webrtc/bootstrap",
+    method: "post",
+    ...variables,
+    signal,
+  });
+
+export type LeaveVoiceError = Fetcher.ErrorWrapper<
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type LeaveVoiceVariables = ZerizehaFetcherExtraProps;
+
+export const leaveVoice = (
+  variables: LeaveVoiceVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<undefined, LeaveVoiceError, undefined, {}, {}, {}>({
+    url: "/api/voice/leave",
+    method: "post",
+    ...variables,
+    signal,
+  });
+
+export type VoiceHeartbeatError = Fetcher.ErrorWrapper<
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type VoiceHeartbeatVariables = ZerizehaFetcherExtraProps;
+
+export const voiceHeartbeat = (
+  variables: VoiceHeartbeatVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<undefined, VoiceHeartbeatError, undefined, {}, {}, {}>({
+    url: "/api/voice/heartbeat",
+    method: "post",
+    ...variables,
+    signal,
+  });
 
 export type ListSpacesError = Fetcher.ErrorWrapper<{
   status: 500;
@@ -241,6 +675,94 @@ export const getSpaceByID = (
     {},
     GetSpaceByIDPathParams
   >({ url: "/api/spaces/{id}", method: "get", ...variables, signal });
+
+export type ListSpaceMembersPathParams = {
+  id: string;
+};
+
+export type ListSpaceMembersError = Fetcher.ErrorWrapper<
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 403;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 404;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type ListSpaceMembersResponse = Schemas.SpaceMemberView[];
+
+export type ListSpaceMembersVariables = {
+  pathParams: ListSpaceMembersPathParams;
+} & ZerizehaFetcherExtraProps;
+
+export const listSpaceMembers = (
+  variables: ListSpaceMembersVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<
+    ListSpaceMembersResponse,
+    ListSpaceMembersError,
+    undefined,
+    {},
+    {},
+    ListSpaceMembersPathParams
+  >({ url: "/api/spaces/{id}/members", method: "get", ...variables, signal });
+
+export type RemoveSpaceMemberPathParams = {
+  spaceId: string;
+  userId: string;
+};
+
+export type RemoveSpaceMemberError = Fetcher.ErrorWrapper<
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 403;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 404;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type RemoveSpaceMemberVariables = {
+  pathParams: RemoveSpaceMemberPathParams;
+} & ZerizehaFetcherExtraProps;
+
+export const removeSpaceMember = (
+  variables: RemoveSpaceMemberVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<
+    undefined,
+    RemoveSpaceMemberError,
+    undefined,
+    {},
+    {},
+    RemoveSpaceMemberPathParams
+  >({
+    url: "/api/spaces/{spaceId}/members/{userId}",
+    method: "delete",
+    ...variables,
+    signal,
+  });
 
 export type ListChannelsBySpacePathParams = {
   id: string;
@@ -545,18 +1067,32 @@ export const deleteSpaceMember = (
   >({ url: "/api/space-members/{id}", method: "delete", ...variables, signal });
 
 export const operationsByTag = {
+  voice: {
+    webRTCWebSocket,
+    joinVoiceChannel,
+    listVoiceMembers,
+    voiceWebRTCBootstrap,
+    leaveVoice,
+    voiceHeartbeat,
+  },
   auth: {
     health,
     googleLogin,
     googleCallback,
     githubLogin,
     githubCallback,
+    yandexLogin,
+    yandexCallback,
     refresh,
   },
+  users: { getMe, searchUsers },
+  admin: { listAdminUsers, updateAdminUser },
   spaces: {
     listSpaces,
     createSpace,
     getSpaceByID,
+    listSpaceMembers,
+    removeSpaceMember,
     updateSpace,
     deleteSpace,
     createSpaceMember,

@@ -22,6 +22,18 @@ func NewPostgresSpaceRepo(db db.Client) repository.SpaceRepository {
 }
 
 func (r *repo) CreateSpace(space dto.SpaceToCreate) (spaceID string, err error) {
+	ctx := context.Background()
+
+	tx, err := r.db.DB().BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
 	queryBuilder := sq.Insert("spaces").
 		Columns("name", "author_id").
 		Values(space.Name, space.AuthorID).
@@ -33,13 +45,26 @@ func (r *repo) CreateSpace(space dto.SpaceToCreate) (spaceID string, err error) 
 		return "", err
 	}
 
-	query := db.Query{
-		Name:     "space.create",
-		QueryRaw: queryRaw,
+	row := tx.QueryRow(ctx, queryRaw, args...)
+	if err := row.Scan(&spaceID); err != nil {
+		return "", err
 	}
 
-	row := r.db.DB().QueryRowContext(context.Background(), query, args...)
-	if err := row.Scan(&spaceID); err != nil {
+	memberQueryBuilder := sq.Insert("space_members").
+		Columns("space_id", "user_id").
+		Values(spaceID, space.AuthorID).
+		PlaceholderFormat(sq.Dollar)
+
+	memberQueryRaw, memberArgs, err := memberQueryBuilder.ToSql()
+	if err != nil {
+		return "", err
+	}
+
+	if _, err := tx.Exec(ctx, memberQueryRaw, memberArgs...); err != nil {
+		return "", err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
 		return "", err
 	}
 
@@ -59,6 +84,43 @@ func (r *repo) ListSpaces() ([]dto.Space, error) {
 
 	query := db.Query{
 		Name:     "space.list",
+		QueryRaw: queryRaw,
+	}
+
+	rows, err := r.db.DB().QueryContext(context.Background(), query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []dto.Space
+	for rows.Next() {
+		var space Space
+		if err := rows.Scan(&space.id, &space.authorID, &space.name, &space.createdAt, &space.updatedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, ToSpaceFromRepo(space))
+	}
+
+	return result, nil
+}
+
+func (r *repo) ListSpacesByUser(userID string) ([]dto.Space, error) {
+	queryBuilder := sq.
+		Select("s.id", "s.author_id", "s.name", "s.created_at", "s.updated_at").
+		From("spaces s").
+		Join("space_members sm ON sm.space_id = s.id").
+		Where(sq.Eq{"sm.user_id": userID}).
+		OrderBy("s.created_at desc").
+		PlaceholderFormat(sq.Dollar)
+
+	queryRaw, args, err := queryBuilder.ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	query := db.Query{
+		Name:     "space.list_by_user",
 		QueryRaw: queryRaw,
 	}
 
@@ -353,4 +415,135 @@ func (r *repo) DeleteSpaceMember(id string) error {
 		return pgx.ErrNoRows
 	}
 	return nil
+}
+
+func (r *repo) IsSpaceMember(spaceID string, userID string) (bool, error) {
+	queryBuilder := sq.Select("1").
+		From("space_members").
+		Where(sq.Eq{"space_id": spaceID, "user_id": userID}).
+		Limit(1).
+		PlaceholderFormat(sq.Dollar)
+
+	queryRaw, args, err := queryBuilder.ToSql()
+	if err != nil {
+		return false, err
+	}
+
+	query := db.Query{
+		Name:     "space_member.exists",
+		QueryRaw: queryRaw,
+	}
+
+	var one int
+	err = r.db.DB().QueryRowContext(context.Background(), query, args...).Scan(&one)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return true, nil
+}
+
+func (r *repo) GetSpaceMemberByID(id string) (dto.SpaceMember, error) {
+	queryBuilder := sq.Select("id", "space_id", "user_id", "created_at").
+		From("space_members").
+		Where(sq.Eq{"id": id}).
+		PlaceholderFormat(sq.Dollar)
+
+	queryRaw, args, err := queryBuilder.ToSql()
+	if err != nil {
+		return dto.SpaceMember{}, err
+	}
+
+	query := db.Query{
+		Name:     "space_member.get_by_id",
+		QueryRaw: queryRaw,
+	}
+
+	var spaceMember SpaceMember
+	row := r.db.DB().QueryRowContext(context.Background(), query, args...)
+	if err := row.Scan(&spaceMember.id, &spaceMember.spaceID, &spaceMember.userID, &spaceMember.createdAt); err != nil {
+		return dto.SpaceMember{}, err
+	}
+
+	return ToSpaceMemberFromRepo(spaceMember), nil
+}
+
+func (r *repo) DeleteSpaceMemberBySpaceUser(spaceID string, userID string) error {
+	queryBuilder := sq.Delete("space_members").
+		Where(sq.Eq{"space_id": spaceID, "user_id": userID}).
+		PlaceholderFormat(sq.Dollar)
+
+	queryRaw, args, err := queryBuilder.ToSql()
+	if err != nil {
+		return err
+	}
+
+	query := db.Query{
+		Name:     "space_member.delete_by_space_user",
+		QueryRaw: queryRaw,
+	}
+
+	tag, err := r.db.DB().ExecContext(context.Background(), query, args...)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+func (r *repo) ListSpaceMembers(spaceID string) ([]dto.SpaceMemberWithUser, error) {
+	queryBuilder := sq.Select(
+		"sm.id",
+		"sm.space_id",
+		"sm.user_id",
+		"u.username",
+		"u.email",
+		"u.is_admin",
+		"sm.created_at",
+	).
+		From("space_members sm").
+		Join("users u ON u.id = sm.user_id").
+		Where(sq.Eq{"sm.space_id": spaceID}).
+		OrderBy("sm.created_at asc").
+		PlaceholderFormat(sq.Dollar)
+
+	queryRaw, args, err := queryBuilder.ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	query := db.Query{
+		Name:     "space_member.list_by_space",
+		QueryRaw: queryRaw,
+	}
+
+	rows, err := r.db.DB().QueryContext(context.Background(), query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]dto.SpaceMemberWithUser, 0)
+	for rows.Next() {
+		var item dto.SpaceMemberWithUser
+		if err := rows.Scan(
+			&item.SpaceMemberID,
+			&item.SpaceID,
+			&item.UserID,
+			&item.Username,
+			&item.Email,
+			&item.IsAdmin,
+			&item.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+
+	return result, nil
 }

@@ -9,22 +9,30 @@ import SpaceSidebar from "@/components/spaces/SpaceSidebar";
 import ErrorState from "@/components/ui/ErrorState";
 import { fetchChannelsBySpaceId } from "@/lib/api/channels";
 import { getHttpStatus } from "@/lib/api/errors";
+import { redirectIfAuthOrOnboardingError } from "@/lib/api/redirects";
 import { fetchSpaceById, fetchSpaces } from "@/lib/api/spaces";
-import { members } from "@/lib/mock";
+import { useMe } from "@/lib/me";
 import type { Channel, Space } from "@/lib/api/generated/zerizeha-schemas";
 
 type ViewState =
   | { status: "loading" }
   | { status: "error"; message: string; serverError: boolean }
-  | { status: "ready"; spaces: Space[]; space: Space; channels: Channel[] };
+  | {
+      status: "ready";
+      spaces: Space[];
+      space: Space;
+      channels: Channel[];
+    };
 
 export default function SpaceSettingsPage() {
+  const meState = useMe();
   const params = useParams<{ spaceId?: string | string[] }>();
   const spaceId =
     typeof params.spaceId === "string"
       ? params.spaceId
       : params.spaceId?.[0] ?? "";
   const [state, setState] = useState<ViewState>({ status: "loading" });
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     if (!spaceId) return;
@@ -36,15 +44,17 @@ export default function SpaceSettingsPage() {
       fetchChannelsBySpaceId(spaceId, controller.signal),
     ])
       .then(([spaces, space, channels]) => {
-        setState({ status: "ready", spaces, space, channels });
+        setState({
+          status: "ready",
+          spaces,
+          space,
+          channels,
+        });
       })
       .catch((err) => {
         console.error("Failed to load space settings", err);
+        if (redirectIfAuthOrOnboardingError(err)) return;
         const status = getHttpStatus(err);
-        if (status === 401) {
-          window.location.assign("/login");
-          return;
-        }
         setState({
           status: "error",
           serverError: typeof status === "number" && status >= 500,
@@ -56,7 +66,7 @@ export default function SpaceSettingsPage() {
       });
 
     return () => controller.abort();
-  }, [spaceId]);
+  }, [spaceId, reloadKey]);
 
   const railSpaces = useMemo(() => {
     if (state.status !== "ready") return [];
@@ -67,10 +77,10 @@ export default function SpaceSettingsPage() {
     if (state.status !== "ready") return { textChannels: [], voiceChannels: [] };
     const textChannels = state.channels
       .filter((channel) => channel.channel_type === "text")
-      .map((channel) => channel.name);
+      .map((channel) => ({ id: channel.id, name: channel.name }));
     const voiceChannels = state.channels
       .filter((channel) => channel.channel_type === "voice")
-      .map((channel) => channel.name);
+      .map((channel) => ({ id: channel.id, name: channel.name }));
     return { textChannels, voiceChannels };
   }, [state]);
 
@@ -84,6 +94,7 @@ export default function SpaceSettingsPage() {
             spaceName={state.space.name}
             textChannels={textChannels}
             voiceChannels={voiceChannels}
+            onChannelsChanged={() => setReloadKey((v) => v + 1)}
           />
         ) : null}
 
@@ -174,7 +185,14 @@ export default function SpaceSettingsPage() {
                   onAction={() => window.location.reload()}
                 />
               ) : (
-                <SpaceMembersSection members={members} />
+                <SpaceMembersSection
+                  spaceId={spaceId}
+                  canManage={
+                    meState.state.status === "ready" &&
+                    state.status === "ready" &&
+                    meState.state.me.id === state.space.author_id
+                  }
+                />
               )}
             </div>
           </div>

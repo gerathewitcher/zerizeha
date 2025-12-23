@@ -39,6 +39,7 @@ func (a *App) initDeps(ctx context.Context) error {
 		a.initConfig,
 		a.InitLogger,
 		a.initServiceProvider,
+		a.initAdminSync,
 		a.initFiber,
 		a.InitAuthHandler,
 	}
@@ -58,17 +59,30 @@ func (a *App) initServiceProvider(_ context.Context) error {
 	return nil
 }
 
+func (a *App) initAdminSync(ctx context.Context) error {
+	adminEmails := a.serviceProvider.Config().AdminEmails()
+	if err := a.serviceProvider.UserService(ctx).SyncAdminsByEmails(adminEmails); err != nil {
+		return err
+	}
+	logger.Info("Synced admins by email", slog.Any("admins", adminEmails))
+	return nil
+}
+
 func (a *App) initFiber(_ context.Context) error {
 
 	a.fiberApp = fiber.New()
 	a.fiberApp.Use(fiberlogger.New())
+	allowedOrigins := buildAllowedOrigins(
+		os.Getenv("CORS_ALLOWED_ORIGINS"),
+		a.serviceProvider.Config().OAuthConfig().FrontendBase,
+	)
 	a.fiberApp.Use(cors.New(cors.Config{
-		AllowOrigins:     "http://localhost:3000",
+		AllowOrigins:     allowedOrigins,
 		AllowHeaders:     "Origin, Content-Type, Accept, Authorization",
 		AllowMethods:     "GET, POST, PUT, PATCH, DELETE, OPTIONS",
 		AllowCredentials: true,
 	}))
-	a.fiberApp.Use(authMiddleware(a.serviceProvider.Config()))
+	a.fiberApp.Use(authMiddleware(a.serviceProvider.Config(), a.serviceProvider.UserService(context.Background())))
 
 	swagger, err := api.GetSwagger()
 	if err != nil {
@@ -100,8 +114,39 @@ func (a *App) initFiber(_ context.Context) error {
 	return nil
 }
 
+func buildAllowedOrigins(rawAllowed string, frontendBase string) string {
+	if strings.TrimSpace(rawAllowed) != "" {
+		parts := strings.Split(rawAllowed, ",")
+		origins := make([]string, 0, len(parts))
+		for _, part := range parts {
+			value := strings.TrimSpace(part)
+			if value == "" {
+				continue
+			}
+			origins = append(origins, value)
+		}
+		if len(origins) > 0 {
+			return strings.Join(origins, ",")
+		}
+	}
+
+	origins := []string{}
+	if strings.TrimSpace(frontendBase) != "" {
+		origins = append(origins, frontendBase)
+	}
+	origins = append(origins, "http://localhost:3000")
+	return strings.Join(origins, ",")
+}
+
 func (a *App) InitAuthHandler(ctx context.Context) error {
-	handler := apihandler.New(a.serviceProvider.Config(), a.serviceProvider.AuthService(ctx), a.serviceProvider.SpaceService(ctx))
+	handler := apihandler.New(
+		a.serviceProvider.Config(),
+		a.serviceProvider.AuthService(ctx),
+		a.serviceProvider.SpaceService(ctx),
+		a.serviceProvider.UserService(ctx),
+		a.serviceProvider.VoiceService(ctx),
+		a.serviceProvider.JanusService(ctx),
+	)
 	api.RegisterHandlers(a.fiberApp, handler)
 	return nil
 }

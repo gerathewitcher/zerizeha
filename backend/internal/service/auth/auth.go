@@ -30,8 +30,10 @@ var (
 type Service interface {
 	GoogleAuthURL(state string) string
 	GithubAuthURL(state string) string
+	YandexAuthURL(state string) string
 	HandleGoogleCallback(ctx context.Context, code string) (TokenResponse, error)
 	HandleGithubCallback(ctx context.Context, code string) (TokenResponse, error)
+	HandleYandexCallback(ctx context.Context, code string) (TokenResponse, error)
 	Refresh(ctx context.Context, refreshToken string) (TokenResponse, error)
 }
 
@@ -72,6 +74,13 @@ type githubEmail struct {
 	Verified bool   `json:"verified"`
 }
 
+type yandexUserInfo struct {
+	Login        string   `json:"login"`
+	DisplayName  string   `json:"display_name"`
+	DefaultEmail string   `json:"default_email"`
+	Emails       []string `json:"emails"`
+}
+
 func NewService(userService service.UserService, cfg config.Config) Service {
 	return &serviceImpl{userService: userService, cfg: cfg}
 }
@@ -89,6 +98,14 @@ func (s *serviceImpl) GithubAuthURL(state string) string {
 		state,
 		oauth2.SetAuthURLParam("allow_signup", "true"),
 	)
+}
+
+func (s *serviceImpl) YandexAuthURL(state string) string {
+	cfg := s.yandexOAuthConfig()
+	if cfg == nil {
+		return ""
+	}
+	return cfg.AuthCodeURL(state)
 }
 
 func (s *serviceImpl) HandleGoogleCallback(ctx context.Context, code string) (TokenResponse, error) {
@@ -138,6 +155,58 @@ func (s *serviceImpl) HandleGithubCallback(ctx context.Context, code string) (To
 
 	username := deriveUsername(userInfo.Name, userInfo.Email, userInfo.Login)
 	user, err := s.findOrCreateUser(userInfo.Email, username)
+	if err != nil {
+		return TokenResponse{}, err
+	}
+
+	return s.issueTokenResponse(user)
+}
+
+func (s *serviceImpl) HandleYandexCallback(ctx context.Context, code string) (TokenResponse, error) {
+	cfg := s.yandexOAuthConfig()
+	if cfg == nil {
+		return TokenResponse{}, ErrOAuthExchange
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	token, err := cfg.Exchange(ctx, code)
+	if err != nil {
+		return TokenResponse{}, ErrOAuthExchange
+	}
+	if strings.TrimSpace(token.AccessToken) == "" {
+		return TokenResponse{}, ErrOAuthExchange
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://login.yandex.ru/info?format=json", nil)
+	if err != nil {
+		return TokenResponse{}, ErrUserInfoFetch
+	}
+	// Yandex expects "OAuth <token>" (not "Bearer").
+	req.Header.Set("Authorization", "OAuth "+token.AccessToken)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return TokenResponse{}, ErrUserInfoFetch
+	}
+	defer resp.Body.Close()
+
+	var info yandexUserInfo
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return TokenResponse{}, ErrUserInfoDecode
+	}
+
+	email := strings.TrimSpace(info.DefaultEmail)
+	if email == "" && len(info.Emails) > 0 {
+		email = strings.TrimSpace(info.Emails[0])
+	}
+	if email == "" {
+		return TokenResponse{}, ErrEmailRequired
+	}
+
+	username := deriveUsername(info.DisplayName, email, info.Login)
+	user, err := s.findOrCreateUser(email, username)
 	if err != nil {
 		return TokenResponse{}, err
 	}
@@ -271,6 +340,26 @@ func (s *serviceImpl) githubOAuthConfig() *oauth2.Config {
 		RedirectURL:  strings.TrimRight(oauthCfg.RedirectBase, "/") + "/api/auth/github/callback",
 		Scopes:       []string{"read:user", "user:email"},
 		Endpoint:     github.Endpoint,
+	}
+}
+
+func (s *serviceImpl) yandexOAuthConfig() *oauth2.Config {
+	oauthCfg := s.cfg.OAuthConfig()
+	if strings.TrimSpace(oauthCfg.YandexClientID) == "" || strings.TrimSpace(oauthCfg.YandexClientSecret) == "" {
+		return nil
+	}
+
+	endpoint := oauth2.Endpoint{
+		AuthURL:  "https://oauth.yandex.com/authorize",
+		TokenURL: "https://oauth.yandex.com/token",
+	}
+
+	return &oauth2.Config{
+		ClientID:     oauthCfg.YandexClientID,
+		ClientSecret: oauthCfg.YandexClientSecret,
+		RedirectURL:  strings.TrimRight(oauthCfg.RedirectBase, "/") + "/api/auth/yandex/callback",
+		Scopes:       []string{"login:info", "login:email"},
+		Endpoint:     endpoint,
 	}
 }
 

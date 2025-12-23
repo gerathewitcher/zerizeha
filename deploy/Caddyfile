@@ -1,0 +1,11 @@
+{
+	email {env.CADDY_EMAIL}
+}
+
+zzeha.ru {
+	reverse_proxy web:3000
+}
+
+api.zzeha.ru {
+	reverse_proxy backend:8080
+}

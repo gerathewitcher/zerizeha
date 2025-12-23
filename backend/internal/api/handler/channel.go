@@ -50,6 +50,14 @@ func (h *Handler) CreateChannel(c *fiber.Ctx) error {
 		return c.Status(http.StatusUnauthorized).JSON(api.ErrorMap{"error": "unauthorized"})
 	}
 
+	isMember, err := h.space.IsSpaceMember(body.SpaceId, userID)
+	if err != nil {
+		return writeError(c, err)
+	}
+	if !isMember {
+		return writeHTTPError(c, http.StatusForbidden, "forbidden")
+	}
+
 	channelID, err := h.space.CreateChannel(dto.ChannelToCreate{
 		AuthorID:    userID,
 		SpaceID:     body.SpaceId,

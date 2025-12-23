@@ -9,6 +9,7 @@ const resolveApiBase = () =>
 const makeUrl = (path: string) => `${resolveApiBase()}${path}`;
 const AUTH_GOOGLE_PATH = "/api/auth/google";
 const AUTH_GITHUB_PATH = "/api/auth/github";
+const AUTH_YANDEX_PATH = "/api/auth/yandex";
 
 export function loginWithGoogle() {
   if (typeof window === "undefined") return;
@@ -18,6 +19,11 @@ export function loginWithGoogle() {
 export function loginWithGithub() {
   if (typeof window === "undefined") return;
   window.location.assign(makeUrl(AUTH_GITHUB_PATH));
+}
+
+export function loginWithYandex() {
+  if (typeof window === "undefined") return;
+  window.location.assign(makeUrl(AUTH_YANDEX_PATH));
 }
 
 export async function refreshToken(

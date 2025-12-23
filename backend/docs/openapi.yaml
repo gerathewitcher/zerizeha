@@ -6,6 +6,66 @@ info:
 servers:
   - url: /
 paths:
+  /api/ws/webrtc/{connectionId}:
+    get:
+      operationId: WebRTCWebSocket
+      summary: webrtc signaling websocket
+      description: WebSocket upgrade endpoint for Janus signaling (offer/answer/trickle)
+      tags:
+        - Voice
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: connectionId
+          required: true
+          schema:
+            type: string
+      responses:
+        '101':
+          description: Switching Protocols
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+  /api/ws/voice/{spaceId}:
+    get:
+      operationId: VoicePresenceWebSocket
+      summary: voice presence websocket
+      description: WebSocket that pushes voice members updates for a space (replaces members polling + heartbeat)
+      tags:
+        - Voice
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: spaceId
+          required: true
+          schema:
+            type: string
+      responses:
+        '101':
+          description: Switching Protocols
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
   /api/auth/health:
     get:
       operationId: Health
@@ -116,6 +176,53 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorMap'
+  /api/auth/yandex:
+    get:
+      operationId: YandexLogin
+      summary: start yandex oauth
+      description: redirects to Yandex OAuth
+      tags:
+        - Auth
+      responses:
+        '307':
+          description: Temporary Redirect
+  /api/auth/yandex/callback:
+    get:
+      operationId: YandexCallback
+      summary: yandex oauth callback
+      description: exchanges code, returns tokens
+      tags:
+        - Auth
+      parameters:
+        - in: query
+          name: code
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: state
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
   /api/auth/refresh:
     post:
       operationId: Refresh
@@ -142,6 +249,387 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorMap'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+
+  /api/me:
+    get:
+      operationId: GetMe
+      summary: get current user
+      tags:
+        - Users
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+
+  /api/users/search:
+    get:
+      operationId: SearchUsers
+      summary: search confirmed users
+      tags:
+        - Users
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: query
+          name: query
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+        - in: query
+          name: cursor
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSearchPage'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+
+  /api/admin/users:
+    get:
+      operationId: ListAdminUsers
+      summary: list users (admin only)
+      tags:
+        - Admin
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: query
+          name: query
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+        - in: query
+          name: cursor
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: confirmed
+          required: false
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUsersPage'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+
+  /api/admin/users/{id}:
+    patch:
+      operationId: UpdateAdminUser
+      summary: update user (admin only)
+      tags:
+        - Admin
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUserToUpdate'
+      responses:
+        '204':
+          description: No Content
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+
+  /api/voice/channels/{id}/join:
+    post:
+      operationId: JoinVoiceChannel
+      summary: join voice channel (presence)
+      tags:
+        - Voice
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: No Content
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+
+  /api/voice/channels/{id}/members:
+    get:
+      operationId: ListVoiceMembers
+      summary: list voice members (presence)
+      tags:
+        - Voice
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/VoiceMember'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+
+  /api/channels/voice/{id}/webrtc/bootstrap:
+    post:
+      operationId: VoiceWebRTCBootstrap
+      summary: bootstrap janus webrtc signaling for voice channel
+      tags:
+        - Voice
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebRTCBootstrapResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+
+  /api/voice/leave:
+    post:
+      operationId: LeaveVoice
+      summary: leave active voice channel (presence)
+      tags:
+        - Voice
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '204':
+          description: No Content
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+
+  /api/voice/heartbeat:
+    post:
+      operationId: VoiceHeartbeat
+      summary: voice presence heartbeat
+      tags:
+        - Voice
+      security:
+        - ApiKeyAuth: []
+      responses:
+        '204':
+          description: No Content
         '401':
           description: Unauthorized
           content:
@@ -232,6 +720,101 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Space'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+
+  /api/spaces/{id}/members:
+    get:
+      operationId: ListSpaceMembers
+      summary: list space members (owner only)
+      tags:
+        - Spaces
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SpaceMemberView'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+
+  /api/spaces/{spaceId}/members/{userId}:
+    delete:
+      operationId: RemoveSpaceMember
+      summary: remove user from space (owner only)
+      tags:
+        - Spaces
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: spaceId
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: No Content
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
         '404':
           description: Not Found
           content:
@@ -599,6 +1182,16 @@ components:
           format: email
         username:
           type: string
+        confirmed:
+          type: boolean
+        confirmed_at:
+          type: string
+          format: date-time
+        confirmed_by:
+          type: string
+          nullable: true
+        is_admin:
+          type: boolean
         created_at:
           type: string
           format: date-time
@@ -719,4 +1312,118 @@ components:
           type: string
         user_id:
           type: string
+      additionalProperties: false
+
+    SpaceMemberView:
+      type: object
+      required: [space_member_id, space_id, user_id, username, is_admin, created_at]
+      properties:
+        space_member_id:
+          type: string
+        space_id:
+          type: string
+        user_id:
+          type: string
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        is_admin:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        avatar_url:
+          type: string
+          nullable: true
+      additionalProperties: false
+
+    UserSearchResult:
+      type: object
+      required: [id, username, is_admin]
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        is_admin:
+          type: boolean
+      additionalProperties: false
+
+    UserSearchPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserSearchResult'
+        next_cursor:
+          type: string
+      additionalProperties: false
+
+    AdminUsersPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        next_cursor:
+          type: string
+      additionalProperties: false
+
+    AdminUserToUpdate:
+      type: object
+      required: [confirmed]
+      properties:
+        confirmed:
+          type: boolean
+      additionalProperties: false
+
+    VoiceMember:
+      type: object
+      required: [id, username, is_admin]
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        is_admin:
+          type: boolean
+        avatar_url:
+          type: string
+          nullable: true
+      additionalProperties: false
+
+    WebRTCPublisher:
+      type: object
+      required: [feed_id]
+      properties:
+        feed_id:
+          type: string
+        display:
+          type: string
+          nullable: true
+      additionalProperties: false
+
+    WebRTCBootstrapResponse:
+      type: object
+      required: [connection_id, room_id, self_feed_id, publishers]
+      properties:
+        connection_id:
+          type: string
+        room_id:
+          type: string
+        self_feed_id:
+          type: string
+        publishers:
+          type: array
+          items:
+            $ref: '#/components/schemas/WebRTCPublisher'
       additionalProperties: false

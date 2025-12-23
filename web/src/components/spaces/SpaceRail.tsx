@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import CreateSpaceModal from "@/components/spaces/CreateSpaceModal";
+import { useMe } from "@/lib/me";
 
 type SpaceItem = {
   id: string;
@@ -13,15 +14,24 @@ type SpaceItem = {
 type SpaceRailProps = {
   spaces: SpaceItem[];
   defaultExpanded?: boolean;
+  isAdmin?: boolean;
 };
 
 export default function SpaceRail({
   spaces,
   defaultExpanded = false,
+  isAdmin,
 }: SpaceRailProps) {
   const [railExpanded, setRailExpanded] = useState(defaultExpanded);
   const [createOpen, setCreateOpen] = useState(false);
   const pathname = usePathname();
+  const meState = useMe();
+  const resolvedIsAdmin =
+    typeof isAdmin === "boolean"
+      ? isAdmin
+      : meState.state.status === "ready"
+        ? !!meState.state.me.is_admin
+        : false;
 
   return (
     <aside
@@ -46,6 +56,21 @@ export default function SpaceRail({
           </div>
         )}
       </div>
+      {resolvedIsAdmin ? (
+        <div className={`mt-4 ${railExpanded ? "px-2" : "flex justify-center"}`}>
+          <Link
+            href="/admin/users"
+            className={`flex items-center gap-2 rounded-2xl border border-(--border) text-xs uppercase tracking-[0.2em] text-(--muted) transition hover:border-(--accent) hover:text-(--accent) ${
+              railExpanded ? "px-4 py-2" : "h-10 w-10 justify-center"
+            }`}
+            title="Админ-панель"
+            aria-label="Админ-панель"
+          >
+            <span className="text-sm">⚙</span>
+            {railExpanded ? <span>Админ панель</span> : null}
+          </Link>
+        </div>
+      ) : null}
       <div
         className={`mt-6 flex flex-1 flex-col gap-3 ${
           railExpanded ? "" : "items-center"
@@ -87,7 +112,7 @@ export default function SpaceRail({
           }`}
           onClick={() => setCreateOpen(true)}
         >
-          +{railExpanded && <span>Создать пространство</span>}
+          +{railExpanded && <span>Создать</span>}
         </button>
         <button
           className={`flex h-10 items-center rounded-xl border border-(--border) text-(--muted) transition hover:text-(--accent) ${

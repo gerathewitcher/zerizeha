@@ -3,14 +3,24 @@
 import Link from "next/link";
 import { useState } from "react";
 import CreateChannelModal from "@/components/spaces/CreateChannelModal";
+import { useMe } from "@/lib/me";
+import type { VoiceMember } from "@/lib/api/generated/zerizeha-schemas";
+
+type ChannelItem = {
+  id: string;
+  name: string;
+};
 
 type SpaceSidebarProps = {
   spaceId: string;
   spaceName: string;
-  textChannels: string[];
-  voiceChannels: string[];
-  voicePresence?: Record<string, string[]>;
-  activeVoiceChannel?: string;
+  textChannels: ChannelItem[];
+  voiceChannels: ChannelItem[];
+  voiceMembersByChannelId?: Record<string, VoiceMember[]>;
+  activeVoiceChannelId?: string | null;
+  onSelectVoiceChannel?: (channelId: string) => void;
+  onLeaveVoiceChannel?: () => void;
+  onChannelsChanged?: () => void;
 };
 
 export default function SpaceSidebar({
@@ -18,11 +28,19 @@ export default function SpaceSidebar({
   spaceName,
   textChannels,
   voiceChannels,
-  voicePresence = {},
-  activeVoiceChannel,
+  voiceMembersByChannelId = {},
+  activeVoiceChannelId,
+  onSelectVoiceChannel,
+  onLeaveVoiceChannel,
+  onChannelsChanged,
 }: SpaceSidebarProps) {
   const [createOpen, setCreateOpen] = useState(false);
   const [createType, setCreateType] = useState<"text" | "voice">("text");
+  const { state } = useMe();
+  const me = state.status === "ready" ? state.me : null;
+  const username = me?.username || "user";
+  const initial = username.trim().slice(0, 1).toUpperCase() || "U";
+  const isAdmin = !!me?.is_admin;
 
   return (
     <aside className="hidden w-72 flex-col border-r border-(--border) bg-(--panel) md:flex">
@@ -73,7 +91,7 @@ export default function SpaceSidebar({
           <div className="mt-3 flex flex-col gap-1">
             {textChannels.map((channel, index) => (
               <button
-                key={channel}
+                key={channel.id}
                 className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${
                   index === 0
                     ? "bg-(--bg-2) text-(--text)"
@@ -81,7 +99,7 @@ export default function SpaceSidebar({
                 }`}
               >
                 <span className="text-(--subtle)">#</span>
-                {channel}
+                {channel.name}
               </button>
             ))}
           </div>
@@ -114,30 +132,35 @@ export default function SpaceSidebar({
             </button>
           </div>
           <div className="mt-3 flex flex-col gap-1">
-            {voiceChannels.map((channel, index) => (
-              <div key={channel} className="flex flex-col">
+            {voiceChannels.map((channel) => (
+              <div key={channel.id} className="flex flex-col">
                 <div
                   className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                    index === 0
+                    channel.id === activeVoiceChannelId
                       ? "bg-(--bg-2) text-(--text)"
                       : "text-(--muted) hover:text-(--text)"
                   }`}
                 >
-                  <span className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    onClick={() => onSelectVoiceChannel?.(channel.id)}
+                  >
                     <span className="text-(--subtle)">🔊</span>
-                    {channel}
-                  </span>
+                    <span className="truncate">{channel.name}</span>
+                  </button>
                   <div className="flex items-center gap-2">
-                    {!!voicePresence[channel]?.length && (
+                    {voiceMembersByChannelId[channel.id]?.length ? (
                       <span className="text-xs text-(--subtle)">
-                        {voicePresence[channel].length}
+                        {voiceMembersByChannelId[channel.id].length}
                       </span>
-                    )}
-                    {activeVoiceChannel === channel && (
+                    ) : null}
+                    {activeVoiceChannelId === channel.id && (
                       <button
                         className="flex h-6 w-6 items-center justify-center rounded-md border border-(--border) text-xs text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
                         aria-label="Покинуть канал"
                         title="Покинуть канал"
+                        onClick={onLeaveVoiceChannel}
                       >
                         <svg
                           className="h-3.5 w-3.5"
@@ -171,12 +194,20 @@ export default function SpaceSidebar({
                     )}
                   </div>
                 </div>
-                {voicePresence[channel]?.length ? (
+                {voiceMembersByChannelId[channel.id]?.length ? (
                   <div className="mt-1 space-y-1 pl-7 text-xs text-(--subtle)">
-                    {voicePresence[channel].map((user) => (
-                      <div key={user} className="flex items-center gap-2">
+                    {voiceMembersByChannelId[channel.id].map((member) => (
+                      <div
+                        key={member.id}
+                        className="flex items-center gap-2"
+                      >
                         <span className="h-1.5 w-1.5 rounded-full bg-(--accent)" />
-                        {user}
+                        <span className="truncate">{member.username}</span>
+                        {member.is_admin ? (
+                          <span className="text-(--accent)" title="Админ">
+                            ★
+                          </span>
+                        ) : null}
                       </div>
                     ))}
                   </div>
@@ -189,19 +220,65 @@ export default function SpaceSidebar({
 
       <div className="border-t border-(--border) px-4 py-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-(--bg-2)">
-            G
-          </div>
-          <div>
-            <p className="text-sm font-medium">gera</p>
-            <p className="text-xs text-(--subtle)">admin</p>
-          </div>
+          {state.status === "loading" ? (
+            <div className="flex w-full items-center gap-3">
+              <div className="h-10 w-10 animate-pulse rounded-xl bg-(--bg-2)" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="h-4 w-32 animate-pulse rounded bg-(--bg-2)" />
+                <div className="h-3 w-40 animate-pulse rounded bg-(--bg-2)" />
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-(--bg-2) text-sm font-semibold">
+                {initial}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm font-medium">{username}</p>
+                  {isAdmin ? (
+                    <span
+                      className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-(--border) bg-(--bg-2) text-(--accent)"
+                      title="Админ"
+                      aria-label="Админ"
+                    >
+                      <svg
+                        className="h-3.5 w-3.5"
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M3 6.2L5.2 8.1L8 4.2L10.8 8.1L13 6.2V11.5C13 12.3 12.3 13 11.5 13H4.5C3.7 13 3 12.3 3 11.5V6.2Z"
+                          stroke="currentColor"
+                          strokeWidth="1.2"
+                          strokeLinejoin="round"
+                        />
+                        <path
+                          d="M5 12.2H11"
+                          stroke="currentColor"
+                          strokeWidth="1.2"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                    </span>
+                  ) : null}
+                </div>
+                <p className="truncate text-xs text-(--subtle)">
+                  {me?.email ? me.email : isAdmin ? "admin" : "user"}
+                </p>
+              </div>
+            </>
+          )}
         </div>
       </div>
       <CreateChannelModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         channelType={createType}
+        spaceId={spaceId}
+        onCreated={onChannelsChanged}
       />
     </aside>
   );

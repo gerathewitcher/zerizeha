@@ -11,18 +11,26 @@ import (
 	authservice "zerizeha/internal/service/auth"
 	spaceservice "zerizeha/internal/service/space"
 	userservice "zerizeha/internal/service/user"
+	voiceservice "zerizeha/internal/service/voice"
+	janusservice "zerizeha/internal/service/janus"
 	"zerizeha/pkg/closer"
 	"zerizeha/pkg/db"
 	"zerizeha/pkg/db/pg"
+	"zerizeha/pkg/redisx"
+
+	"github.com/redis/go-redis/v9"
 )
 
 type serviceProvider struct {
 	config       config.Config
 	dbClient     db.Client
+	redisClient  *redis.Client
 	userRepo     repository.UserRepository
 	spaceRepo    repository.SpaceRepository
 	userService  service.UserService
 	spaceService service.SpaceService
+	voiceService service.VoiceService
+	janusService service.JanusService
 	authService  authservice.Service
 }
 
@@ -62,6 +70,18 @@ func (s *serviceProvider) DBClient(ctx context.Context) db.Client {
 	return s.dbClient
 }
 
+func (s *serviceProvider) RedisClient(ctx context.Context) *redis.Client {
+	if s.redisClient == nil {
+		client := redisx.New(s.Config().RedisConfig().Address)
+		if err := redisx.Ping(ctx, client); err != nil {
+			log.Fatalf("failed to connect to redis: %v", err)
+		}
+		closer.Add(client.Close)
+		s.redisClient = client
+	}
+	return s.redisClient
+}
+
 func (s *serviceProvider) UserRepository(ctx context.Context) repository.UserRepository {
 	if s.userRepo == nil {
 		s.userRepo = pgUserRepo.NewPostgresUserRepo(s.DBClient(ctx))
@@ -95,4 +115,18 @@ func (s *serviceProvider) AuthService(ctx context.Context) authservice.Service {
 		s.authService = authservice.NewService(s.UserService(ctx), s.Config())
 	}
 	return s.authService
+}
+
+func (s *serviceProvider) VoiceService(ctx context.Context) service.VoiceService {
+	if s.voiceService == nil {
+		s.voiceService = voiceservice.New(s.RedisClient(ctx), s.Config().VoicePresenceTTLSeconds())
+	}
+	return s.voiceService
+}
+
+func (s *serviceProvider) JanusService(_ context.Context) service.JanusService {
+	if s.janusService == nil {
+		s.janusService = janusservice.New(s.Config().JanusWSURL())
+	}
+	return s.janusService
 }

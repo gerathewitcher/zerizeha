@@ -54,6 +54,29 @@ func (h *Handler) GithubCallback(c *fiber.Ctx, params api.GithubCallbackParams) 
 	return h.handleAuthResponse(c, response, err, true)
 }
 
+func (h *Handler) YandexLogin(c *fiber.Ctx) error {
+	state, err := generateState()
+	if err != nil {
+		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "failed to generate state"})
+	}
+
+	h.setStateCookie(c, "yandex", state)
+	url := h.authService.YandexAuthURL(state)
+	if url == "" {
+		return c.Status(http.StatusNotImplemented).JSON(fiber.Map{"error": "yandex oauth is not configured"})
+	}
+	return c.Redirect(url, http.StatusTemporaryRedirect)
+}
+
+func (h *Handler) YandexCallback(c *fiber.Ctx, params api.YandexCallbackParams) error {
+	if err := h.verifyStateCookie(c, "yandex", params.State); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	}
+
+	response, err := h.authService.HandleYandexCallback(c.UserContext(), params.Code)
+	return h.handleAuthResponse(c, response, err, true)
+}
+
 func (h *Handler) Refresh(c *fiber.Ctx) error {
 	var req api.RefreshRequest
 

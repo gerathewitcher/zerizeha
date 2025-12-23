@@ -13,5 +13,28 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  zerizeha-redis:
+    image: redis:7-alpine
+    container_name: zerizeha-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+  
+  janus-gateway:
+    image: 'sucwangsr/janus-webrtc-gateway-docker:latest'
+    # To only start janus, you can use:
+    #command: ["/usr/local/bin/janus", "-F", "/usr/local/etc/janus"]
+    # By default, start both nginx (port 8086) and janus:
+    command: ["sh", "-c", "nginx && /usr/local/bin/janus -F /usr/local/etc/janus"]
+    network_mode: "host"
+    volumes:
+    #   - "./janus-conf/janus.transport.http.jcfg:/usr/local/etc/janus/janus.transport.http.jcfg"  # Enable adminapi config
+    #   - "./janus-conf/janus.jcfg:/usr/local/etc/janus/janus.jcfg"
+    #   - "./janus-conf/janus.eventhandler.sampleevh.jcfg:/usr/local/etc/janus/janus.eventhandler.sampleevh.jcfg"
+       - "./janus-conf/janus.plugin.videoroom.jcfg:/usr/local/etc/janus/janus.plugin.videoroom.jcfg"
+    restart: always
+
 volumes:
   postgres_data:
+  redis_data:

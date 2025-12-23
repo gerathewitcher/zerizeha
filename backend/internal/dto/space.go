@@ -27,6 +27,16 @@ type SpaceMember struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type SpaceMemberWithUser struct {
+	SpaceMemberID string    `json:"space_member_id"`
+	SpaceID       string    `json:"space_id"`
+	UserID        string    `json:"user_id"`
+	Username      string    `json:"username"`
+	Email         string    `json:"email"`
+	IsAdmin       bool      `json:"is_admin"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
 type SpaceToCreate struct {
 	AuthorID string `json:"author_id"`
 	Name     string `json:"name"`

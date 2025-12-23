@@ -35,6 +35,17 @@ const (
 	ChannelToCreateChannelTypeVoice ChannelToCreateChannelType = "voice"
 )
 
+// AdminUserToUpdate defines model for AdminUserToUpdate.
+type AdminUserToUpdate struct {
+	Confirmed bool `json:"confirmed"`
+}
+
+// AdminUsersPage defines model for AdminUsersPage.
+type AdminUsersPage struct {
+	Items      []User  `json:"items"`
+	NextCursor *string `json:"next_cursor,omitempty"`
+}
+
 // Channel defines model for Channel.
 type Channel struct {
 	AuthorId    string             `json:"author_id"`
@@ -92,6 +103,18 @@ type SpaceMemberToCreate struct {
 	UserId  string `json:"user_id"`
 }
 
+// SpaceMemberView defines model for SpaceMemberView.
+type SpaceMemberView struct {
+	AvatarUrl     *string              `json:"avatar_url"`
+	CreatedAt     time.Time            `json:"created_at"`
+	Email         *openapi_types.Email `json:"email,omitempty"`
+	IsAdmin       bool                 `json:"is_admin"`
+	SpaceId       string               `json:"space_id"`
+	SpaceMemberId string               `json:"space_member_id"`
+	UserId        string               `json:"user_id"`
+	Username      string               `json:"username"`
+}
+
 // SpaceToCreate defines model for SpaceToCreate.
 type SpaceToCreate struct {
 	Name string `json:"name"`
@@ -116,10 +139,58 @@ type TokenResponse struct {
 
 // User defines model for User.
 type User struct {
-	CreatedAt *time.Time           `json:"created_at,omitempty"`
-	Email     *openapi_types.Email `json:"email,omitempty"`
-	Id        *string              `json:"id,omitempty"`
-	Username  *string              `json:"username,omitempty"`
+	Confirmed   *bool                `json:"confirmed,omitempty"`
+	ConfirmedAt *time.Time           `json:"confirmed_at,omitempty"`
+	ConfirmedBy *string              `json:"confirmed_by"`
+	CreatedAt   *time.Time           `json:"created_at,omitempty"`
+	Email       *openapi_types.Email `json:"email,omitempty"`
+	Id          *string              `json:"id,omitempty"`
+	IsAdmin     *bool                `json:"is_admin,omitempty"`
+	Username    *string              `json:"username,omitempty"`
+}
+
+// UserSearchPage defines model for UserSearchPage.
+type UserSearchPage struct {
+	Items      []UserSearchResult `json:"items"`
+	NextCursor *string            `json:"next_cursor,omitempty"`
+}
+
+// UserSearchResult defines model for UserSearchResult.
+type UserSearchResult struct {
+	Email    *openapi_types.Email `json:"email,omitempty"`
+	Id       string               `json:"id"`
+	IsAdmin  bool                 `json:"is_admin"`
+	Username string               `json:"username"`
+}
+
+// VoiceMember defines model for VoiceMember.
+type VoiceMember struct {
+	AvatarUrl *string `json:"avatar_url"`
+	Id        string  `json:"id"`
+	IsAdmin   bool    `json:"is_admin"`
+	Username  string  `json:"username"`
+}
+
+// WebRTCBootstrapResponse defines model for WebRTCBootstrapResponse.
+type WebRTCBootstrapResponse struct {
+	ConnectionId string            `json:"connection_id"`
+	Publishers   []WebRTCPublisher `json:"publishers"`
+	RoomId       string            `json:"room_id"`
+	SelfFeedId   string            `json:"self_feed_id"`
+}
+
+// WebRTCPublisher defines model for WebRTCPublisher.
+type WebRTCPublisher struct {
+	Display *string `json:"display"`
+	FeedId  string  `json:"feed_id"`
+}
+
+// ListAdminUsersParams defines parameters for ListAdminUsers.
+type ListAdminUsersParams struct {
+	Query     *string `form:"query,omitempty" json:"query,omitempty"`
+	Limit     *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Cursor    *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Confirmed *bool   `form:"confirmed,omitempty" json:"confirmed,omitempty"`
 }
 
 // GithubCallbackParams defines parameters for GithubCallback.
@@ -133,6 +204,22 @@ type GoogleCallbackParams struct {
 	Code  string `form:"code" json:"code"`
 	State string `form:"state" json:"state"`
 }
+
+// YandexCallbackParams defines parameters for YandexCallback.
+type YandexCallbackParams struct {
+	Code  string `form:"code" json:"code"`
+	State string `form:"state" json:"state"`
+}
+
+// SearchUsersParams defines parameters for SearchUsers.
+type SearchUsersParams struct {
+	Query  *string `form:"query,omitempty" json:"query,omitempty"`
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// UpdateAdminUserJSONRequestBody defines body for UpdateAdminUser for application/json ContentType.
+type UpdateAdminUserJSONRequestBody = AdminUserToUpdate
 
 // RefreshJSONRequestBody defines body for Refresh for application/json ContentType.
 type RefreshJSONRequestBody = RefreshRequest
@@ -154,6 +241,12 @@ type UpdateSpaceJSONRequestBody = SpaceToUpdate
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// list users (admin only)
+	// (GET /api/admin/users)
+	ListAdminUsers(c *fiber.Ctx, params ListAdminUsersParams) error
+	// update user (admin only)
+	// (PATCH /api/admin/users/{id})
+	UpdateAdminUser(c *fiber.Ctx, id string) error
 	// start github oauth
 	// (GET /api/auth/github)
 	GithubLogin(c *fiber.Ctx) error
@@ -172,9 +265,18 @@ type ServerInterface interface {
 	// refresh tokens
 	// (POST /api/auth/refresh)
 	Refresh(c *fiber.Ctx) error
+	// start yandex oauth
+	// (GET /api/auth/yandex)
+	YandexLogin(c *fiber.Ctx) error
+	// yandex oauth callback
+	// (GET /api/auth/yandex/callback)
+	YandexCallback(c *fiber.Ctx, params YandexCallbackParams) error
 	// create channel
 	// (POST /api/channels)
 	CreateChannel(c *fiber.Ctx) error
+	// bootstrap janus webrtc signaling for voice channel
+	// (POST /api/channels/voice/{id}/webrtc/bootstrap)
+	VoiceWebRTCBootstrap(c *fiber.Ctx, id string) error
 	// delete channel
 	// (DELETE /api/channels/{id})
 	DeleteChannel(c *fiber.Ctx, id string) error
@@ -184,6 +286,9 @@ type ServerInterface interface {
 	// update channel
 	// (PATCH /api/channels/{id})
 	UpdateChannel(c *fiber.Ctx, id string) error
+	// get current user
+	// (GET /api/me)
+	GetMe(c *fiber.Ctx) error
 	// create space member
 	// (POST /api/space-members)
 	CreateSpaceMember(c *fiber.Ctx) error
@@ -208,6 +313,33 @@ type ServerInterface interface {
 	// update space
 	// (PATCH /api/spaces/{id}/channels)
 	UpdateSpace(c *fiber.Ctx, id string) error
+	// list space members (owner only)
+	// (GET /api/spaces/{id}/members)
+	ListSpaceMembers(c *fiber.Ctx, id string) error
+	// remove user from space (owner only)
+	// (DELETE /api/spaces/{spaceId}/members/{userId})
+	RemoveSpaceMember(c *fiber.Ctx, spaceId string, userId string) error
+	// search confirmed users
+	// (GET /api/users/search)
+	SearchUsers(c *fiber.Ctx, params SearchUsersParams) error
+	// join voice channel (presence)
+	// (POST /api/voice/channels/{id}/join)
+	JoinVoiceChannel(c *fiber.Ctx, id string) error
+	// list voice members (presence)
+	// (GET /api/voice/channels/{id}/members)
+	ListVoiceMembers(c *fiber.Ctx, id string) error
+	// voice presence heartbeat
+	// (POST /api/voice/heartbeat)
+	VoiceHeartbeat(c *fiber.Ctx) error
+	// leave active voice channel (presence)
+	// (POST /api/voice/leave)
+	LeaveVoice(c *fiber.Ctx) error
+	// voice presence websocket
+	// (GET /api/ws/voice/{spaceId})
+	VoicePresenceWebSocket(c *fiber.Ctx, spaceId string) error
+	// webrtc signaling websocket
+	// (GET /api/ws/webrtc/{connectionId})
+	WebRTCWebSocket(c *fiber.Ctx, connectionId string) error
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -216,6 +348,71 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc fiber.Handler
+
+// ListAdminUsers operation middleware
+func (siw *ServerInterfaceWrapper) ListAdminUsers(c *fiber.Ctx) error {
+
+	var err error
+
+	c.Context().SetUserValue(ApiKeyAuthScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAdminUsersParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "query" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "query", query, &params.Query)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter query: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", query, &params.Limit)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter limit: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "cursor", query, &params.Cursor)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter cursor: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "confirmed" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "confirmed", query, &params.Confirmed)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter confirmed: %w", err).Error())
+	}
+
+	return siw.Handler.ListAdminUsers(c, params)
+}
+
+// UpdateAdminUser operation middleware
+func (siw *ServerInterfaceWrapper) UpdateAdminUser(c *fiber.Ctx) error {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Params("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter id: %w", err).Error())
+	}
+
+	c.Context().SetUserValue(ApiKeyAuthScopes, []string{})
+
+	return siw.Handler.UpdateAdminUser(c, id)
+}
 
 // GithubLogin operation middleware
 func (siw *ServerInterfaceWrapper) GithubLogin(c *fiber.Ctx) error {
@@ -337,12 +534,83 @@ func (siw *ServerInterfaceWrapper) Refresh(c *fiber.Ctx) error {
 	return siw.Handler.Refresh(c)
 }
 
+// YandexLogin operation middleware
+func (siw *ServerInterfaceWrapper) YandexLogin(c *fiber.Ctx) error {
+
+	return siw.Handler.YandexLogin(c)
+}
+
+// YandexCallback operation middleware
+func (siw *ServerInterfaceWrapper) YandexCallback(c *fiber.Ctx) error {
+
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params YandexCallbackParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Required query parameter "code" -------------
+
+	if paramValue := c.Query("code"); paramValue != "" {
+
+	} else {
+		err = fmt.Errorf("Query argument code is required, but not found")
+		c.Status(fiber.StatusBadRequest).JSON(err)
+		return err
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "code", query, &params.Code)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter code: %w", err).Error())
+	}
+
+	// ------------- Required query parameter "state" -------------
+
+	if paramValue := c.Query("state"); paramValue != "" {
+
+	} else {
+		err = fmt.Errorf("Query argument state is required, but not found")
+		c.Status(fiber.StatusBadRequest).JSON(err)
+		return err
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "state", query, &params.State)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter state: %w", err).Error())
+	}
+
+	return siw.Handler.YandexCallback(c, params)
+}
+
 // CreateChannel operation middleware
 func (siw *ServerInterfaceWrapper) CreateChannel(c *fiber.Ctx) error {
 
 	c.Context().SetUserValue(ApiKeyAuthScopes, []string{})
 
 	return siw.Handler.CreateChannel(c)
+}
+
+// VoiceWebRTCBootstrap operation middleware
+func (siw *ServerInterfaceWrapper) VoiceWebRTCBootstrap(c *fiber.Ctx) error {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Params("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter id: %w", err).Error())
+	}
+
+	c.Context().SetUserValue(ApiKeyAuthScopes, []string{})
+
+	return siw.Handler.VoiceWebRTCBootstrap(c, id)
 }
 
 // DeleteChannel operation middleware
@@ -397,6 +665,14 @@ func (siw *ServerInterfaceWrapper) UpdateChannel(c *fiber.Ctx) error {
 	c.Context().SetUserValue(ApiKeyAuthScopes, []string{})
 
 	return siw.Handler.UpdateChannel(c, id)
+}
+
+// GetMe operation middleware
+func (siw *ServerInterfaceWrapper) GetMe(c *fiber.Ctx) error {
+
+	c.Context().SetUserValue(ApiKeyAuthScopes, []string{})
+
+	return siw.Handler.GetMe(c)
 }
 
 // CreateSpaceMember operation middleware
@@ -513,6 +789,178 @@ func (siw *ServerInterfaceWrapper) UpdateSpace(c *fiber.Ctx) error {
 	return siw.Handler.UpdateSpace(c, id)
 }
 
+// ListSpaceMembers operation middleware
+func (siw *ServerInterfaceWrapper) ListSpaceMembers(c *fiber.Ctx) error {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Params("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter id: %w", err).Error())
+	}
+
+	c.Context().SetUserValue(ApiKeyAuthScopes, []string{})
+
+	return siw.Handler.ListSpaceMembers(c, id)
+}
+
+// RemoveSpaceMember operation middleware
+func (siw *ServerInterfaceWrapper) RemoveSpaceMember(c *fiber.Ctx) error {
+
+	var err error
+
+	// ------------- Path parameter "spaceId" -------------
+	var spaceId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "spaceId", c.Params("spaceId"), &spaceId, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter spaceId: %w", err).Error())
+	}
+
+	// ------------- Path parameter "userId" -------------
+	var userId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", c.Params("userId"), &userId, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter userId: %w", err).Error())
+	}
+
+	c.Context().SetUserValue(ApiKeyAuthScopes, []string{})
+
+	return siw.Handler.RemoveSpaceMember(c, spaceId, userId)
+}
+
+// SearchUsers operation middleware
+func (siw *ServerInterfaceWrapper) SearchUsers(c *fiber.Ctx) error {
+
+	var err error
+
+	c.Context().SetUserValue(ApiKeyAuthScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SearchUsersParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "query" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "query", query, &params.Query)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter query: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", query, &params.Limit)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter limit: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "cursor", query, &params.Cursor)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter cursor: %w", err).Error())
+	}
+
+	return siw.Handler.SearchUsers(c, params)
+}
+
+// JoinVoiceChannel operation middleware
+func (siw *ServerInterfaceWrapper) JoinVoiceChannel(c *fiber.Ctx) error {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Params("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter id: %w", err).Error())
+	}
+
+	c.Context().SetUserValue(ApiKeyAuthScopes, []string{})
+
+	return siw.Handler.JoinVoiceChannel(c, id)
+}
+
+// ListVoiceMembers operation middleware
+func (siw *ServerInterfaceWrapper) ListVoiceMembers(c *fiber.Ctx) error {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Params("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter id: %w", err).Error())
+	}
+
+	c.Context().SetUserValue(ApiKeyAuthScopes, []string{})
+
+	return siw.Handler.ListVoiceMembers(c, id)
+}
+
+// VoiceHeartbeat operation middleware
+func (siw *ServerInterfaceWrapper) VoiceHeartbeat(c *fiber.Ctx) error {
+
+	c.Context().SetUserValue(ApiKeyAuthScopes, []string{})
+
+	return siw.Handler.VoiceHeartbeat(c)
+}
+
+// LeaveVoice operation middleware
+func (siw *ServerInterfaceWrapper) LeaveVoice(c *fiber.Ctx) error {
+
+	c.Context().SetUserValue(ApiKeyAuthScopes, []string{})
+
+	return siw.Handler.LeaveVoice(c)
+}
+
+// VoicePresenceWebSocket operation middleware
+func (siw *ServerInterfaceWrapper) VoicePresenceWebSocket(c *fiber.Ctx) error {
+
+	var err error
+
+	// ------------- Path parameter "spaceId" -------------
+	var spaceId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "spaceId", c.Params("spaceId"), &spaceId, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter spaceId: %w", err).Error())
+	}
+
+	c.Context().SetUserValue(ApiKeyAuthScopes, []string{})
+
+	return siw.Handler.VoicePresenceWebSocket(c, spaceId)
+}
+
+// WebRTCWebSocket operation middleware
+func (siw *ServerInterfaceWrapper) WebRTCWebSocket(c *fiber.Ctx) error {
+
+	var err error
+
+	// ------------- Path parameter "connectionId" -------------
+	var connectionId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "connectionId", c.Params("connectionId"), &connectionId, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter connectionId: %w", err).Error())
+	}
+
+	c.Context().SetUserValue(ApiKeyAuthScopes, []string{})
+
+	return siw.Handler.WebRTCWebSocket(c, connectionId)
+}
+
 // FiberServerOptions provides options for the Fiber server.
 type FiberServerOptions struct {
 	BaseURL     string
@@ -534,6 +982,10 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 		router.Use(fiber.Handler(m))
 	}
 
+	router.Get(options.BaseURL+"/api/admin/users", wrapper.ListAdminUsers)
+
+	router.Patch(options.BaseURL+"/api/admin/users/:id", wrapper.UpdateAdminUser)
+
 	router.Get(options.BaseURL+"/api/auth/github", wrapper.GithubLogin)
 
 	router.Get(options.BaseURL+"/api/auth/github/callback", wrapper.GithubCallback)
@@ -546,13 +998,21 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 
 	router.Post(options.BaseURL+"/api/auth/refresh", wrapper.Refresh)
 
+	router.Get(options.BaseURL+"/api/auth/yandex", wrapper.YandexLogin)
+
+	router.Get(options.BaseURL+"/api/auth/yandex/callback", wrapper.YandexCallback)
+
 	router.Post(options.BaseURL+"/api/channels", wrapper.CreateChannel)
+
+	router.Post(options.BaseURL+"/api/channels/voice/:id/webrtc/bootstrap", wrapper.VoiceWebRTCBootstrap)
 
 	router.Delete(options.BaseURL+"/api/channels/:id", wrapper.DeleteChannel)
 
 	router.Get(options.BaseURL+"/api/channels/:id", wrapper.GetChannelByID)
 
 	router.Patch(options.BaseURL+"/api/channels/:id", wrapper.UpdateChannel)
+
+	router.Get(options.BaseURL+"/api/me", wrapper.GetMe)
 
 	router.Post(options.BaseURL+"/api/space-members", wrapper.CreateSpaceMember)
 
@@ -570,35 +1030,69 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 
 	router.Patch(options.BaseURL+"/api/spaces/:id/channels", wrapper.UpdateSpace)
 
+	router.Get(options.BaseURL+"/api/spaces/:id/members", wrapper.ListSpaceMembers)
+
+	router.Delete(options.BaseURL+"/api/spaces/:spaceId/members/:userId", wrapper.RemoveSpaceMember)
+
+	router.Get(options.BaseURL+"/api/users/search", wrapper.SearchUsers)
+
+	router.Post(options.BaseURL+"/api/voice/channels/:id/join", wrapper.JoinVoiceChannel)
+
+	router.Get(options.BaseURL+"/api/voice/channels/:id/members", wrapper.ListVoiceMembers)
+
+	router.Post(options.BaseURL+"/api/voice/heartbeat", wrapper.VoiceHeartbeat)
+
+	router.Post(options.BaseURL+"/api/voice/leave", wrapper.LeaveVoice)
+
+	router.Get(options.BaseURL+"/api/ws/voice/:spaceId", wrapper.VoicePresenceWebSocket)
+
+	router.Get(options.BaseURL+"/api/ws/webrtc/:connectionId", wrapper.WebRTCWebSocket)
+
 }
 
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"H4sIAAAAAAAC/+xZW3PbNhP9Kxh83yNjKbXbzujNdtrEk+v48tKMxwORKxExCdDA0rXi0X/vACAtkiJp",
-	"SpaUquGbROKyl3N2D8BH6ss4kQIEajp6pNoPIWb252nIhIDI/GRBwJFLwaIvSiagkIOmowmLNHg0KTx6",
-	"pCzFUKobHpg/OEuAjqhGxcWUzj3quzVv3ItHCiKN6egrRXhA6tF7yX2g117NRAUMIbhhaKZNpIrNLxow",
-	"hFfIY6A1cxpsECyG2hc6YT40WZ4mwYoGzD2q4C7lCgLjIg+oV4hOYbvMpEp0Sj4vQiLH38BHY1GWn0t5",
-	"asetmKe1M7FO+CqheMbzVmevbB5WdLbB5opZdlTd5n8oJdVHljTvWhOOpVXOgnPQiRTamlI2sEvUeFBr",
-	"3DlMFOjwHO5S0Li8tHLvb1DegqjfZWnNC5OgzRJ/B/zdPEVzdLYT0UbrI8RjUGuSsb3yaFCr0iqf02ju",
-	"moa+kEjZ1j+CwxfIMNVFBq7P5EtDpWYyM98HrRsJ51F4SLgCfcNFCahc4G9HC5BygTAFRa2H7Rz2qH3z",
-	"VMxrMWRe/F/BhI7o/waLrj/IWv7gyoypLQdX2exV2ssafIeY8ag03D3pXhqMm804qfhlWhb4qeI4uzAh",
-	"cIYfJ/w9zI5TDG1dFnREQ2ABqLwcjOixrRD8OzOxWFjH7Ew6NwtzMZFmfgDaVzyxA0f0L1D8O4SMjJl/",
-	"CyIgx1/OzHyOERRfu8f3oLSb9/pgaLyTCQiWcDqihwfDg0Pq0YRhaK0esIQPTOUaTDmG6dg8mwIum6Ag",
-	"4Ap81AQlecvxXTomn623dn1lfToL6Ii+tQt9kFNufFQZ2u1uh8Pfl1e+hDiRiqkZOc/2cCFO45ipmc0E",
-	"U0icfUQytyeyqTa8tSZcmwlVVwY+iyITsEaf4MHIhylo4ssAPKIAUyWMh7cgdINjp/mqJoqKxYCgjCVZ",
-	"zu9SULNFys3CtFhpUKXgZWq5Fm3162g0hW+Vha4rsf9lOLT8kgJB2GCwJIm4b/0bfNNSLGT8c4wv1zEL",
-	"3HJkP783uDva4JZPUqpmtxMWkFzGzD366462PRNoqkZELkDdgyJ2bAW7RdQSfwGdVvhKOY2gIxPt2CYm",
-	"2pebZ6LbsxMT7dDNM9Eu2zOxZ+IKTCygtisTQ2CR6+e1qHWviR+CXamM0Xdu7hZzX1GmDckvqBXLjaJO",
-	"+XptwLmIUcWhttBkytKKWKlbKZ0NdWQmE6mIgL+zfwnjail02ck0IxloPJHBbGNhq5x75+WTgCHz/Kcl",
-	"7NHw9U62vRIs08IQ/NsKRQmuupkG2dWTLlKgjGN3Us6vQ7eD5upl3o7hXLib6pvPEqa61l136CX+E1Jy",
-	"yJ3mGFuG3eCRB3NXdiNwlyJl9L2xzxfoq9NI5hy4kDb2BugluuZouQ18kuQ0y4CFwtFOcvJJIvlTpiLY",
-	"MyC4XLYDwcvFSEUTA2aDTmZnb3aT7+Gmy1hbEemR04acKWAOGzKeEZvaWvAkDP1wGT7uanXb1WKL/S+7",
-	"G+7U/zrUqR8kv3qQt4Hcfajp1iftR41Xsf268qxGK3yJ2ZJOq/vW02u1/dVqFl4kziGTA9GmuRGGHTVb",
-	"GY29btsb3bYSKHThXqmMgg9cYzbnheWAI8S6U2kqfK9kSrFZc4nYo7REXCPReSSX0uE93xO22Q36PvBf",
-	"6QPPc/2p8jed3ey8fTy5ZdWjP7etf25zbaN6amtDUunysYOY6GXE3smI+obVqBfyE9DJbIcJ34IYeboI",
-	"6ipHekx10EB5uTBFxlWbNS+ItguurQmt/nLop7kcahZkdjGzusNsqiI6ogM6v57/EwAA//8KXLR+zTAA",
-	"AA==",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

@@ -27,6 +27,10 @@ func (s *serv) ListSpaces() ([]dto.Space, error) {
 	return s.repo.ListSpaces()
 }
 
+func (s *serv) ListSpacesByUser(userID string) ([]dto.Space, error) {
+	return s.repo.ListSpacesByUser(userID)
+}
+
 func (s *serv) GetSpaceByID(id string) (dto.Space, error) {
 	return s.repo.GetSpaceByID(id)
 }
@@ -70,4 +74,20 @@ func (s *serv) CreateSpaceMember(spaceMember dto.SpaceMemberToCreate) (string, e
 
 func (s *serv) DeleteSpaceMember(id string) error {
 	return s.repo.DeleteSpaceMember(id)
+}
+
+func (s *serv) IsSpaceMember(spaceID string, userID string) (bool, error) {
+	return s.repo.IsSpaceMember(spaceID, userID)
+}
+
+func (s *serv) GetSpaceMemberByID(id string) (dto.SpaceMember, error) {
+	return s.repo.GetSpaceMemberByID(id)
+}
+
+func (s *serv) DeleteSpaceMemberBySpaceUser(spaceID string, userID string) error {
+	return s.repo.DeleteSpaceMemberBySpaceUser(spaceID, userID)
+}
+
+func (s *serv) ListSpaceMembers(spaceID string) ([]dto.SpaceMemberWithUser, error) {
+	return s.repo.ListSpaceMembers(spaceID)
 }

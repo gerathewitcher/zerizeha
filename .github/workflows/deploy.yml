@@ -1,0 +1,32 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            set -euo pipefail
+            DEPLOY_DIR="${DEPLOY_PATH:-/srv/zerizeha}"
+            if [ ! -d "$DEPLOY_DIR/.git" ]; then
+              git clone https://github.com/gerathewitcher/zerizeha "$DEPLOY_DIR"
+            fi
+            cd "$DEPLOY_DIR"
+            git fetch origin main
+            git reset --hard origin/main
+            docker compose --env-file .env.prod -f docker-compose.prod.yml build
+            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d postgres redis janus
+            docker compose --env-file .env.prod -f docker-compose.prod.yml run --rm migrate
+            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}

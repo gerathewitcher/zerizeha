@@ -25,3 +25,23 @@ func (s *serv) GetUserByID(id string) (dto.User, error) {
 func (s *serv) GetUserByEmail(email string) (dto.User, error) {
 	return s.repo.GetUserByEmail(email)
 }
+
+func (s *serv) ListUsers() ([]dto.User, error) {
+	return s.repo.ListUsers()
+}
+
+func (s *serv) GetUsersByIDs(ids []string) ([]dto.User, error) {
+	return s.repo.GetUsersByIDs(ids)
+}
+
+func (s *serv) SearchUsers(query string, limit int, cursor *dto.UserSearchCursor, confirmedOnly bool, confirmedFilter *bool) ([]dto.User, *dto.UserSearchCursor, error) {
+	return s.repo.SearchUsers(query, limit, cursor, confirmedOnly, confirmedFilter)
+}
+
+func (s *serv) SetUserConfirmed(id string, confirmed bool, confirmedBy string) error {
+	return s.repo.SetUserConfirmed(id, confirmed, confirmedBy)
+}
+
+func (s *serv) SyncAdminsByEmails(emails []string) error {
+	return s.repo.SyncAdminsByEmails(emails)
+}

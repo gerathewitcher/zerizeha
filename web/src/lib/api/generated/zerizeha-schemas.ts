@@ -37,6 +37,13 @@ export type User = {
    */
   email?: string;
   username?: string;
+  confirmed?: boolean;
+  /**
+   * @format date-time
+   */
+  confirmed_at?: string;
+  confirmed_by?: string | null;
+  is_admin?: boolean;
   /**
    * @format date-time
    */
@@ -104,4 +111,64 @@ export type ChannelToUpdate = {
 export type SpaceMemberToCreate = {
   space_id: string;
   user_id: string;
+};
+
+export type SpaceMemberView = {
+  space_member_id: string;
+  space_id: string;
+  user_id: string;
+  username: string;
+  /**
+   * @format email
+   */
+  email?: string;
+  is_admin: boolean;
+  /**
+   * @format date-time
+   */
+  created_at: string;
+  avatar_url?: string | null;
+};
+
+export type UserSearchResult = {
+  id: string;
+  username: string;
+  /**
+   * @format email
+   */
+  email?: string;
+  is_admin: boolean;
+};
+
+export type UserSearchPage = {
+  items: UserSearchResult[];
+  next_cursor?: string;
+};
+
+export type AdminUsersPage = {
+  items: User[];
+  next_cursor?: string;
+};
+
+export type AdminUserToUpdate = {
+  confirmed: boolean;
+};
+
+export type VoiceMember = {
+  id: string;
+  username: string;
+  is_admin: boolean;
+  avatar_url?: string | null;
+};
+
+export type WebRTCPublisher = {
+  feed_id: string;
+  display?: string | null;
+};
+
+export type WebRTCBootstrapResponse = {
+  connection_id: string;
+  room_id: string;
+  self_feed_id: string;
+  publishers: WebRTCPublisher[];
 };

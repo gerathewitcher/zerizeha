@@ -6,11 +6,17 @@ type UserRepository interface {
 	CreateUser(user dto.UserToCreate) (userID string, err error)
 	GetUserByID(id string) (dto.User, error)
 	GetUserByEmail(email string) (dto.User, error)
+	ListUsers() ([]dto.User, error)
+	GetUsersByIDs(ids []string) ([]dto.User, error)
+	SearchUsers(query string, limit int, cursor *dto.UserSearchCursor, confirmedOnly bool, confirmedFilter *bool) ([]dto.User, *dto.UserSearchCursor, error)
+	SetUserConfirmed(id string, confirmed bool, confirmedBy string) error
+	SyncAdminsByEmails(emails []string) error
 }
 
 type SpaceRepository interface {
 	CreateSpace(space dto.SpaceToCreate) (spaceID string, err error)
 	ListSpaces() ([]dto.Space, error)
+	ListSpacesByUser(userID string) ([]dto.Space, error)
 	GetSpaceByID(id string) (dto.Space, error)
 	UpdateSpace(id string, space dto.SpaceToUpdate) error
 	DeleteSpace(id string) error
@@ -23,4 +29,9 @@ type SpaceRepository interface {
 
 	CreateSpaceMember(spaceMember dto.SpaceMemberToCreate) (spaceMemberID string, err error)
 	DeleteSpaceMember(id string) error
+
+	IsSpaceMember(spaceID string, userID string) (bool, error)
+	GetSpaceMemberByID(id string) (dto.SpaceMember, error)
+	DeleteSpaceMemberBySpaceUser(spaceID string, userID string) error
+	ListSpaceMembers(spaceID string) ([]dto.SpaceMemberWithUser, error)
 }

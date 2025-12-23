@@ -1,4 +1,5 @@
 import {
+  createSpace,
   getSpaceByID,
   listSpaces,
   type ListSpacesResponse,
@@ -16,4 +17,12 @@ export async function fetchSpaceById(
   signal?: AbortSignal,
 ): Promise<Space> {
   return getSpaceByID({ pathParams: { id: spaceId } }, signal);
+}
+
+export async function createSpaceByName(
+  name: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const res = await createSpace({ body: { name } }, signal);
+  return res.id;
 }

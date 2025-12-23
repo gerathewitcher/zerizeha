@@ -1,0 +1,80 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+
+  janus:
+    image: sucwangsr/janus-webrtc-gateway-docker:latest
+    command: ["sh", "-c", "nginx && /usr/local/bin/janus -F /usr/local/etc/janus"]
+    ports:
+      - "8088:8088"
+      - "8188:8188"
+      - "10000-10200:10000-10200/udp"
+    volumes:
+      - ./backend/janus-conf/janus.plugin.videoroom.jcfg:/usr/local/etc/janus/janus.plugin.videoroom.jcfg
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+    env_file: ./.env.prod
+    depends_on:
+      - postgres
+      - redis
+      - janus
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: ./backend
+    env_file: ./.env.prod
+    depends_on:
+      - postgres
+    command: ["goose", "-dir", "/app/migrations", "postgres", "${PG_DSN}", "up"]
+    restart: "no"
+
+  web:
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE}
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.8-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CADDY_EMAIL: ${CADDY_EMAIL}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:

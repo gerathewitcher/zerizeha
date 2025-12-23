@@ -11,9 +11,10 @@ import (
 	api "zerizeha/internal/api"
 	apihandler "zerizeha/internal/api/handler"
 	"zerizeha/internal/config"
+	"zerizeha/internal/service"
 )
 
-func authMiddleware(cfg config.Config) fiber.Handler {
+func authMiddleware(cfg config.Config, userService service.UserService) fiber.Handler {
 	secret := []byte(cfg.OAuthConfig().JWTSecret)
 
 	return func(c *fiber.Ctx) error {
@@ -45,7 +46,23 @@ func authMiddleware(cfg config.Config) fiber.Handler {
 			return c.Status(http.StatusUnauthorized).JSON(api.ErrorMap{"error": "invalid token"})
 		}
 
+		user, err := userService.GetUserByID(claims.Subject)
+		if err != nil {
+			return c.Status(http.StatusUnauthorized).JSON(api.ErrorMap{"error": "invalid token"})
+		}
+
+		// Expose user info to handlers.
 		c.Locals(apihandler.UserIDLocalKey, claims.Subject)
+		c.Locals(apihandler.UserLocalKey, user)
+
+		if strings.HasPrefix(path, "/api/admin") && !user.IsAdmin {
+			return c.Status(http.StatusForbidden).JSON(api.ErrorMap{"error": "forbidden"})
+		}
+
+		if path != "/api/me" && !user.Confirmed {
+			return c.Status(http.StatusForbidden).JSON(api.ErrorMap{"error": "user is not confirmed"})
+		}
+
 		return c.Next()
 	}
 }
@@ -53,7 +70,12 @@ func authMiddleware(cfg config.Config) fiber.Handler {
 func requiresAuth(path string) bool {
 	return strings.HasPrefix(path, "/api/spaces") ||
 		strings.HasPrefix(path, "/api/channels") ||
-		strings.HasPrefix(path, "/api/space-members")
+		strings.HasPrefix(path, "/api/space-members") ||
+		strings.HasPrefix(path, "/api/users") ||
+		strings.HasPrefix(path, "/api/voice") ||
+		strings.HasPrefix(path, "/api/ws") ||
+		strings.HasPrefix(path, "/api/admin") ||
+		path == "/api/me"
 }
 
 func bearerToken(c *fiber.Ctx) string {

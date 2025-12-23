@@ -10,7 +10,12 @@ import (
 )
 
 func (h *Handler) ListSpaces(c *fiber.Ctx) error {
-	spaces, err := h.space.ListSpaces()
+	userID, ok := c.Locals(UserIDLocalKey).(string)
+	if !ok || userID == "" {
+		return writeHTTPError(c, http.StatusUnauthorized, "unauthorized")
+	}
+
+	spaces, err := h.space.ListSpacesByUser(userID)
 	if err != nil {
 		return writeError(c, err)
 	}

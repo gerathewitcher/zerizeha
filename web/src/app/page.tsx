@@ -3,8 +3,8 @@ import { cookies } from "next/headers";
 
 export default async function Home() {
   const cookieStore = await cookies();
-  const hasSession = !!(
-    cookieStore.get("access_token")
+  const hasSession = Boolean(
+    cookieStore.get("access_token") ?? cookieStore.get("refresh_token"),
   );
 
   redirect(hasSession ? "/spaces" : "/login");

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { loginWithGithub, loginWithGoogle } from "@/lib/api/auth";
+import { loginWithGithub, loginWithGoogle, loginWithYandex } from "@/lib/api/auth";
 import { health } from "@/lib/api/generated/zerizeha-components";
 import ErrorState from "@/components/ui/ErrorState";
 
@@ -81,7 +81,7 @@ export default function LoginPageClient() {
                   Вход в Zerizeha
                 </h2>
                 <p className="mt-2 text-sm text-(--muted)">
-                  Используй Google или GitHub, чтобы продолжить.
+                  Используй Google, GitHub или Yandex, чтобы продолжить.
                 </p>
               </div>
 
@@ -144,6 +144,20 @@ export default function LoginPageClient() {
                       </svg>
                     </span>
                     Войти через GitHub
+                  </span>
+                  <span className="text-xs text-(--subtle)">OAuth</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={loginWithYandex}
+                  className="flex w-full items-center justify-between rounded-xl border border-(--border) bg-(--panel-2) px-4 py-3 text-left text-sm font-medium transition hover:border-(--accent) hover:text-(--accent)"
+                >
+                  <span className="flex items-center gap-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-(--bg-2)">
+                      <span className="text-sm font-semibold text-(--text)">Я</span>
+                    </span>
+                    Войти через Yandex
                   </span>
                   <span className="text-xs text-(--subtle)">OAuth</span>
                 </button>
