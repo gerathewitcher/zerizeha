@@ -3,6 +3,10 @@
 }
 
 zzeha.ru {
+	handle_path /api/* {
+		reverse_proxy backend:8080
+	}
+
 	reverse_proxy web:3000
 }
 
