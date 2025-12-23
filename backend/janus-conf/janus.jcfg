@@ -1,4 +1,4 @@
-general: {
+nat: {
 	# External/public IP address of this host.
 	# Replace with your server public IP.
 	nat_1_1_mapping = "45.83.143.129"
