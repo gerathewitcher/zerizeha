@@ -30,17 +30,13 @@ services:
   coturn:
     image: coturn/coturn:4.6.2
     network_mode: "host"
-    environment:
-      TURN_REALM: ${TURN_REALM}
-      TURN_USER: ${TURN_USER}
-      TURN_PASS: ${TURN_PASS}
-      TURN_EXTERNAL_IP: ${TURN_EXTERNAL_IP}
+    entrypoint: ["turnserver"]
     command:
       - -n
       - --log-file=stdout
-      - --realm=$(TURN_REALM)
-      - --user=$(TURN_USER):$(TURN_PASS)
-      - --external-ip=$(TURN_EXTERNAL_IP)
+      - --realm=${TURN_REALM}
+      - --user=${TURN_USER}:${TURN_PASS}
+      - --external-ip=${TURN_EXTERNAL_IP}
       - --listening-port=3478
       - --min-port=49160
       - --max-port=49200
