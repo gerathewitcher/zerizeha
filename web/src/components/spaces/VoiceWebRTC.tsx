@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { bootstrapVoiceWebRTC } from "@/lib/api/voice";
 import { buildWebSocketUrl } from "@/lib/api/ws";
 
@@ -11,14 +11,31 @@ type WSEnvelope =
   | { type: "publisher_joined"; payload: { feed_id: string; display?: string | null } }
   | { type: "publisher_left"; payload: { feed_id: string } }
   | { type: "publish_answer"; request_id: string; payload: { jsep: WebRTCJSEP } }
+  | {
+      type: "screen_publish_answer";
+      request_id: string;
+      payload: { feed_id: string; jsep: WebRTCJSEP };
+    }
   | { type: "subscribe_offer"; request_id: string; payload: { feed_id: string; jsep: WebRTCJSEP } }
   | { type: "subscribe_answer_ack"; request_id: string }
-  | { type: "trickle"; payload: { target: "publisher" | "subscriber"; feed_id?: string; candidate: any } }
+  | { type: "screen_leave_ack"; request_id: string }
+  | {
+      type: "trickle";
+      payload: {
+        target: "publisher" | "subscriber" | "screen_publisher";
+        feed_id?: string;
+        candidate: any;
+      };
+    }
   | { type: "trickle_ack"; request_id: string }
   | { type: "error"; request_id?: string; payload?: { message?: string } }
   | { type: string; request_id?: string; payload?: any };
 
-type RemoteTrack = { feedId: string; stream: MediaStream };
+type RemoteTrack = { feedId: string; stream: MediaStream; userId?: string };
+
+type FeedKind = "voice" | "screen";
+
+type ScreenShareInfo = { feedId: string; userId: string };
 
 const parseUrls = (raw: string | undefined): string[] =>
   (raw ?? "")
@@ -47,7 +64,56 @@ const buildIceServers = (): RTCIceServer[] => {
   return servers;
 };
 
-function RemoteAudio({ stream }: { stream: MediaStream }) {
+type ConnectionQuality = "good" | "ok" | "bad" | "unknown";
+
+const extractConnectionQuality = (stats: RTCStatsReport): ConnectionQuality => {
+  let lossRatio: number | null = null;
+  let jitterMs: number | null = null;
+
+  for (const entry of stats.values()) {
+    if (entry.type !== "remote-inbound-rtp") continue;
+    if (entry.kind && entry.kind !== "audio") continue;
+
+    const lost = typeof entry.packetsLost === "number" ? entry.packetsLost : null;
+    const received =
+      typeof entry.packetsReceived === "number" ? entry.packetsReceived : null;
+    if (lost != null && received != null && received + lost > 0) {
+      lossRatio = lost / (received + lost);
+    }
+    if (typeof entry.jitter === "number" && isFinite(entry.jitter)) {
+      jitterMs = entry.jitter * 1000;
+    }
+    break;
+  }
+
+  if (lossRatio == null && jitterMs == null) return "unknown";
+
+  const loss = lossRatio ?? 0;
+  const jitter = jitterMs ?? 0;
+  if (loss < 0.02 && jitter < 20) return "good";
+  if (loss < 0.05 && jitter < 50) return "ok";
+  return "bad";
+};
+
+const parseDisplay = (
+  display?: string | null,
+): { userId: string; kind: FeedKind } | null => {
+  if (!display) return null;
+  if (display.endsWith("|screen")) {
+    const userId = display.slice(0, -"|screen".length);
+    if (!userId) return null;
+    return { userId, kind: "screen" };
+  }
+  return { userId: display, kind: "voice" };
+};
+
+function RemoteAudio({
+  stream,
+  volume,
+}: {
+  stream: MediaStream;
+  volume: number;
+}) {
   const ref = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
@@ -63,6 +129,12 @@ function RemoteAudio({ stream }: { stream: MediaStream }) {
       }).catch(() => {});
     }
   }, [stream]);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.volume = Math.max(0, Math.min(1, volume));
+  }, [volume]);
 
   return <audio ref={ref} autoPlay playsInline className="hidden" />;
 }
@@ -176,31 +248,34 @@ type VoiceWebRTCProps = {
   channelId: string | null;
   onSpeaking?: (userId: string, speaking: boolean) => void;
   selfUserId?: string | null;
-  videoEnabled?: boolean;
-  onLocalStream?: (stream: MediaStream | null) => void;
-  onRemoteStream?: (userId: string, stream: MediaStream) => void;
-  onRemoteStreamRemoved?: (userId: string) => void;
-  onCameraError?: (message: string | null) => void;
+  onLocalScreenStream?: (stream: MediaStream | null) => void;
+  onRemoteScreenStream?: (feedId: string, userId: string, stream: MediaStream) => void;
+  onRemoteScreenStreamRemoved?: (feedId: string) => void;
+  onScreenSharesChange?: (shares: ScreenShareInfo[]) => void;
   onFatalError?: (message: string) => void;
+  onConnectionQuality?: (quality: ConnectionQuality) => void;
+  screenShareEnabled?: boolean;
+  onScreenShareStateChange?: (active: boolean) => void;
+  watchFeedId?: string | null;
+  volumeByUserId?: Record<string, number>;
 };
 
 export default function VoiceWebRTC({
   channelId,
   onSpeaking,
   selfUserId,
-  videoEnabled = false,
-  onLocalStream,
-  onRemoteStream,
-  onRemoteStreamRemoved,
-  onCameraError,
+  onLocalScreenStream,
+  onRemoteScreenStream,
+  onRemoteScreenStreamRemoved,
+  onScreenSharesChange,
   onFatalError,
+  onConnectionQuality,
+  screenShareEnabled = false,
+  onScreenShareStateChange,
+  watchFeedId = null,
+  volumeByUserId = {},
 }: VoiceWebRTCProps) {
   const [remoteTracks, setRemoteTracks] = useState<RemoteTrack[]>([]);
-  const remoteTracksByFeed = useMemo(() => {
-    const map = new Map<string, MediaStream>();
-    for (const t of remoteTracks) map.set(t.feedId, t.stream);
-    return map;
-  }, [remoteTracks]);
 
   const onSpeakingRef = useRef<VoiceWebRTCProps["onSpeaking"]>(onSpeaking);
   useEffect(() => {
@@ -209,62 +284,82 @@ export default function VoiceWebRTC({
 
   const localStreamRef = useRef<MediaStream | null>(null);
   const publisherPcRef = useRef<RTCPeerConnection | null>(null);
-  const localVideoTrackRef = useRef<MediaStreamTrack | null>(null);
-  const videoSenderRef = useRef<RTCRtpSender | null>(null);
+  const ensureSubscriberRef = useRef<((feedId: string) => void) | undefined>(
+    undefined,
+  );
+  const screenControlRef = useRef<{
+    start: () => void;
+    stop: () => void;
+  } | null>(null);
 
   const selfUserIdRef = useRef<string | null | undefined>(selfUserId);
   useEffect(() => {
     selfUserIdRef.current = selfUserId;
   }, [selfUserId]);
 
-  const videoEnabledRef = useRef<boolean>(videoEnabled);
+  const screenShareEnabledRef = useRef<boolean>(screenShareEnabled);
   useEffect(() => {
-    videoEnabledRef.current = videoEnabled;
-    const stream = localStreamRef.current;
-    if (stream) {
-      for (const t of stream.getVideoTracks()) t.enabled = videoEnabled;
+    screenShareEnabledRef.current = screenShareEnabled;
+    const controls = screenControlRef.current;
+    if (!controls) return;
+    if (screenShareEnabled) {
+      controls.start();
+    } else {
+      controls.stop();
     }
-    // Stop sending video RTP when disabled (Firefox otherwise keeps a black frame on receivers).
-    const sender = videoSenderRef.current;
-    const track = localVideoTrackRef.current;
-    if (!sender) return;
-    try {
-      if (videoEnabled) {
-        if (track) void sender.replaceTrack(track);
-      } else {
-        void sender.replaceTrack(null);
-      }
-    } catch {
-      // ignore
-    }
-  }, [videoEnabled]);
+  }, [screenShareEnabled]);
 
-  const onLocalStreamRef = useRef<VoiceWebRTCProps["onLocalStream"]>(onLocalStream);
   useEffect(() => {
-    onLocalStreamRef.current = onLocalStream;
-  }, [onLocalStream]);
+    if (!watchFeedId) return;
+    ensureSubscriberRef.current?.(watchFeedId);
+  }, [watchFeedId]);
 
-  const onRemoteStreamRef = useRef<VoiceWebRTCProps["onRemoteStream"]>(onRemoteStream);
-  useEffect(() => {
-    onRemoteStreamRef.current = onRemoteStream;
-  }, [onRemoteStream]);
-
-  const onRemoteStreamRemovedRef = useRef<VoiceWebRTCProps["onRemoteStreamRemoved"]>(
-    onRemoteStreamRemoved,
+  const onLocalScreenStreamRef = useRef<VoiceWebRTCProps["onLocalScreenStream"]>(
+    onLocalScreenStream,
   );
   useEffect(() => {
-    onRemoteStreamRemovedRef.current = onRemoteStreamRemoved;
-  }, [onRemoteStreamRemoved]);
+    onLocalScreenStreamRef.current = onLocalScreenStream;
+  }, [onLocalScreenStream]);
 
-  const onCameraErrorRef = useRef<VoiceWebRTCProps["onCameraError"]>(onCameraError);
+  const onRemoteScreenStreamRef = useRef<VoiceWebRTCProps["onRemoteScreenStream"]>(
+    onRemoteScreenStream,
+  );
   useEffect(() => {
-    onCameraErrorRef.current = onCameraError;
-  }, [onCameraError]);
+    onRemoteScreenStreamRef.current = onRemoteScreenStream;
+  }, [onRemoteScreenStream]);
+
+  const onRemoteScreenStreamRemovedRef = useRef<
+    VoiceWebRTCProps["onRemoteScreenStreamRemoved"]
+  >(onRemoteScreenStreamRemoved);
+  useEffect(() => {
+    onRemoteScreenStreamRemovedRef.current = onRemoteScreenStreamRemoved;
+  }, [onRemoteScreenStreamRemoved]);
+
+  const onScreenSharesChangeRef = useRef<VoiceWebRTCProps["onScreenSharesChange"]>(
+    onScreenSharesChange,
+  );
+  useEffect(() => {
+    onScreenSharesChangeRef.current = onScreenSharesChange;
+  }, [onScreenSharesChange]);
 
   const onFatalErrorRef = useRef<VoiceWebRTCProps["onFatalError"]>(onFatalError);
   useEffect(() => {
     onFatalErrorRef.current = onFatalError;
   }, [onFatalError]);
+
+  const onConnectionQualityRef = useRef<VoiceWebRTCProps["onConnectionQuality"]>(
+    onConnectionQuality,
+  );
+  useEffect(() => {
+    onConnectionQualityRef.current = onConnectionQuality;
+  }, [onConnectionQuality]);
+
+  const onScreenShareStateChangeRef = useRef<
+    VoiceWebRTCProps["onScreenShareStateChange"]
+  >(onScreenShareStateChange);
+  useEffect(() => {
+    onScreenShareStateChangeRef.current = onScreenShareStateChange;
+  }, [onScreenShareStateChange]);
 
   useEffect(() => {
     if (!channelId) {
@@ -280,7 +375,8 @@ export default function VoiceWebRTC({
     const subscriberPcs = new Map<string, RTCPeerConnection>();
     const subscriberIceBuffer = new Map<string, any[]>();
     const publisherIceBuffer: any[] = [];
-    const displayByFeedId = new Map<string, string>();
+    const feedMetaById = new Map<string, { userId: string; kind: FeedKind }>();
+    const screenFeeds = new Map<string, string>();
     const remoteStreamByFeedId = new Map<string, MediaStream>();
     const meters = new Map<
       string,
@@ -293,10 +389,15 @@ export default function VoiceWebRTC({
     let audioCtx: AudioContext | null = null;
 
     let localStream: MediaStream | null = null;
-    let localStreamReported = false;
     let client: SignalingClient | null = null;
     let ws: WebSocket | null = null;
     let selfFeedId = "";
+    let statsTimer: number | null = null;
+    let screenPc: RTCPeerConnection | null = null;
+    let screenStream: MediaStream | null = null;
+    let screenIceBuffer: any[] = [];
+    let screenFeedId = "";
+    let screenActive = false;
 
     const cleanup = () => {
       cancelled = true;
@@ -317,7 +418,7 @@ export default function VoiceWebRTC({
 
       const notify = onSpeakingRef.current;
       if (notify) {
-        for (const userId of displayByFeedId.values()) notify(userId, false);
+        for (const meta of feedMetaById.values()) notify(meta.userId, false);
         const selfId = selfUserIdRef.current;
         if (selfId) notify(selfId, false);
       }
@@ -332,6 +433,11 @@ export default function VoiceWebRTC({
         }
       }
       audioCtx = null;
+
+      if (statsTimer) {
+        window.clearInterval(statsTimer);
+        statsTimer = null;
+      }
 
       for (const pc of subscriberPcs.values()) {
         try {
@@ -348,19 +454,59 @@ export default function VoiceWebRTC({
         // ignore
       }
       publisherPcRef.current = null;
-      localVideoTrackRef.current = null;
-      videoSenderRef.current = null;
+
+      if (screenPc) {
+        try {
+          screenPc.close();
+        } catch {
+          // ignore
+        }
+      }
+      screenPc = null;
+      screenFeedId = "";
+      screenActive = false;
+      if (screenStream) {
+        for (const t of screenStream.getTracks()) t.stop();
+      }
+      screenStream = null;
+      screenIceBuffer = [];
+      onLocalScreenStreamRef.current?.(null);
+      onScreenShareStateChangeRef.current?.(false);
+      onScreenSharesChangeRef.current?.([]);
 
       if (localStream) {
         for (const t of localStream.getTracks()) t.stop();
       }
       localStream = null;
       localStreamRef.current = null;
-      if (localStreamReported) {
-        onLocalStreamRef.current?.(null);
-      }
-      onCameraErrorRef.current?.(null);
+      onConnectionQualityRef.current?.("unknown");
       setRemoteTracks([]);
+      ensureSubscriberRef.current = undefined;
+      screenControlRef.current = null;
+    };
+
+    const startStatsPolling = () => {
+      if (!onConnectionQualityRef.current) return;
+      if (statsTimer) return;
+      statsTimer = window.setInterval(async () => {
+        if (cancelled) return;
+        try {
+          const report = await publisherPc.getStats();
+          const quality = extractConnectionQuality(report);
+          onConnectionQualityRef.current?.(quality);
+        } catch {
+          // ignore
+        }
+      }, 2000);
+    };
+
+    const notifyScreenShares = () => {
+      if (!onScreenSharesChangeRef.current) return;
+      const shares: ScreenShareInfo[] = [];
+      for (const [feedId, userId] of screenFeeds.entries()) {
+        shares.push({ feedId, userId });
+      }
+      onScreenSharesChangeRef.current(shares);
     };
 
     const ensureAudioContext = async () => {
@@ -500,15 +646,21 @@ export default function VoiceWebRTC({
           if (!exists) stream.addTrack(ev.track);
         }
 
-        // RMS-based speaking detection for this remote stream, without routing audio to output.
-        startRmsMeter(feedId, stream, () => displayByFeedId.get(feedId) ?? null).catch(() => {});
+        const meta = feedMetaById.get(feedId);
+        const userId = meta?.userId;
+        const kind = meta?.kind ?? "voice";
 
-        const userId = displayByFeedId.get(feedId);
-        if (userId) onRemoteStreamRef.current?.(userId, stream);
+        if (kind === "voice") {
+          // RMS-based speaking detection for this remote stream, without routing audio to output.
+          startRmsMeter(feedId, stream, () => userId ?? null).catch(() => {});
+        }
+        if (userId && kind === "screen") {
+          onRemoteScreenStreamRef.current?.(feedId, userId, stream);
+        }
 
         setRemoteTracks((prev) => {
           const next = prev.filter((t) => t.feedId !== feedId);
-          next.push({ feedId, stream: stream! });
+          next.push({ feedId, stream: stream!, userId });
           return next;
         });
       };
@@ -540,9 +692,115 @@ export default function VoiceWebRTC({
       subscriberIceBuffer.delete(feedId);
       for (const cand of buffered) await addIceCandidateSafe(pc, cand);
     };
+    ensureSubscriberRef.current = (feedId: string) => {
+      ensureSubscriber(feedId).catch(() => {});
+    };
+
+    const startScreenShare = async () => {
+      if (!client || screenActive) return;
+      if (screenPc) return;
+      try {
+        screenStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: false,
+        });
+      } catch {
+        onScreenShareStateChangeRef.current?.(false);
+        return;
+      }
+      if (cancelled || !screenStream) return;
+
+      onLocalScreenStreamRef.current?.(screenStream);
+      onScreenShareStateChangeRef.current?.(true);
+
+      try {
+        screenPc = new RTCPeerConnection(rtcConfig);
+        const tracks = screenStream.getTracks();
+        for (const track of tracks) screenPc.addTrack(track, screenStream);
+
+        const stopTrackShare = () => {
+          stopScreenShare();
+        };
+        for (const track of tracks) {
+          track.onended = stopTrackShare;
+        }
+
+        screenPc.onicecandidate = (ev) => {
+          if (!client) return;
+          client.send("trickle", {
+            target: "screen_publisher",
+            candidate: ev.candidate ? ev.candidate.toJSON() : { completed: true },
+          });
+        };
+
+        const offer = await screenPc.createOffer();
+        await screenPc.setLocalDescription(offer);
+        const answerMsg = await client.request<
+          Extract<WSEnvelope, { type: "screen_publish_answer" }>
+        >(
+          "screen_publish_offer",
+          {
+            jsep: {
+              type: screenPc.localDescription!.type,
+              sdp: screenPc.localDescription!.sdp,
+            },
+          },
+          "screen_publish_answer",
+        );
+        if (cancelled || !screenPc) return;
+        screenFeedId = answerMsg.payload.feed_id;
+        await screenPc.setRemoteDescription(answerMsg.payload.jsep);
+        for (const cand of screenIceBuffer.splice(0, screenIceBuffer.length)) {
+          await addIceCandidateSafe(screenPc, cand);
+        }
+        screenActive = true;
+      } catch {
+        stopScreenShare();
+      }
+    };
+
+    const stopScreenShare = () => {
+      if (screenPc) {
+        try {
+          screenPc.close();
+        } catch {
+          // ignore
+        }
+      }
+      screenPc = null;
+      screenIceBuffer = [];
+      if (screenStream) {
+        for (const t of screenStream.getTracks()) t.stop();
+      }
+      screenStream = null;
+      screenActive = false;
+      if (client && screenFeedId) {
+        try {
+          client.send("screen_leave", {});
+        } catch {
+          // ignore
+        }
+      }
+      screenFeedId = "";
+      onLocalScreenStreamRef.current?.(null);
+      onScreenShareStateChangeRef.current?.(false);
+    };
+
+    screenControlRef.current = {
+      start: () => {
+        startScreenShare().catch(() => {});
+      },
+      stop: () => {
+        stopScreenShare();
+      },
+    };
+    if (screenShareEnabledRef.current) {
+      screenControlRef.current.start();
+    }
 
     (async () => {
       try {
+        startStatsPolling();
         const bootstrap = await bootstrapVoiceWebRTC(channelId);
         if (cancelled) return;
 
@@ -567,7 +825,7 @@ export default function VoiceWebRTC({
 
           if (msg.type === "trickle") {
             const payload = (msg as any).payload as {
-              target: "publisher" | "subscriber";
+              target: "publisher" | "subscriber" | "screen_publisher";
               feed_id?: string;
               candidate: any;
             };
@@ -577,6 +835,14 @@ export default function VoiceWebRTC({
                 return;
               }
               addIceCandidateSafe(publisherPc, payload.candidate);
+              return;
+            }
+            if (payload.target === "screen_publisher") {
+              if (!screenPc || !screenPc.remoteDescription) {
+                screenIceBuffer.push(payload.candidate);
+                return;
+              }
+              addIceCandidateSafe(screenPc, payload.candidate);
               return;
             }
             if (payload.target === "subscriber" && payload.feed_id) {
@@ -597,21 +863,38 @@ export default function VoiceWebRTC({
             const feedId = (msg as any).payload?.feed_id as string | undefined;
             const display = (msg as any).payload?.display as string | undefined;
             if (feedId && display) {
-              displayByFeedId.set(feedId, display);
-              const existing = remoteStreamByFeedId.get(feedId);
-              if (existing) onRemoteStreamRef.current?.(display, existing);
+              const meta = parseDisplay(display);
+              if (meta) {
+                feedMetaById.set(feedId, meta);
+                if (meta.kind === "screen") {
+                  screenFeeds.set(feedId, meta.userId);
+                  notifyScreenShares();
+                  const existing = remoteStreamByFeedId.get(feedId);
+                  if (existing) {
+                    onRemoteScreenStreamRef.current?.(feedId, meta.userId, existing);
+                  }
+                }
+              }
             }
-            if (feedId) ensureSubscriber(feedId).catch(() => {});
+            if (feedId && feedMetaById.get(feedId)?.kind !== "screen") {
+              ensureSubscriber(feedId).catch(() => {});
+            }
             return;
           }
 
           if (msg.type === "publisher_left") {
             const feedId = (msg as any).payload?.feed_id as string | undefined;
             if (!feedId) return;
-            const userId = displayByFeedId.get(feedId);
+            const meta = feedMetaById.get(feedId);
+            const userId = meta?.userId;
             const notify = onSpeakingRef.current;
             if (userId && notify) notify(userId, false);
-            if (userId) onRemoteStreamRemovedRef.current?.(userId);
+            if (meta?.kind === "screen") {
+              onRemoteScreenStreamRemovedRef.current?.(feedId);
+              screenFeeds.delete(feedId);
+              notifyScreenShares();
+            }
+            feedMetaById.delete(feedId);
             remoteStreamByFeedId.delete(feedId);
             const meter = meters.get(feedId);
             if (meter) meter.stop();
@@ -627,6 +910,7 @@ export default function VoiceWebRTC({
             }
             setRemoteTracks((prev) => prev.filter((t) => t.feedId !== feedId));
           }
+
         };
 
         const openPromise = new Promise<void>((resolve, reject) => {
@@ -646,39 +930,20 @@ export default function VoiceWebRTC({
         if (cancelled) return;
 
         for (const p of ready.payload.publishers) {
-          if (p.feed_id && p.display) displayByFeedId.set(p.feed_id, p.display);
-        }
-
-        try {
-          localStream = await navigator.mediaDevices.getUserMedia({
-            audio: true,
-            video: {
-              width: { ideal: 640 },
-              height: { ideal: 360 },
-              frameRate: { ideal: 15, max: 30 },
-            },
-          });
-          onCameraErrorRef.current?.(null);
-        } catch (e) {
-          const err = e as DOMException | Error;
-          const name = (err as any)?.name as string | undefined;
-          let msg = "Не удалось получить доступ к камере.";
-          if (name === "NotReadableError" || name === "AbortError") {
-            msg = "Камера занята другим приложением или вкладкой.";
-          } else if (name === "NotAllowedError") {
-            msg = "Доступ к камере запрещён. Проверь разрешения браузера.";
-          } else if (name === "NotFoundError") {
-            msg = "Камера не найдена.";
-          } else if (name === "OverconstrainedError") {
-            msg = "Камера не поддерживает запрошенные параметры.";
+          if (!p.feed_id || !p.display) continue;
+          const meta = parseDisplay(p.display);
+          if (!meta) continue;
+          feedMetaById.set(p.feed_id, meta);
+          if (meta.kind === "screen") {
+            screenFeeds.set(p.feed_id, meta.userId);
           }
-          onCameraErrorRef.current?.(msg);
-          // Fallback to audio-only if camera permission/device is unavailable.
-          localStream = await navigator.mediaDevices.getUserMedia({
-            audio: true,
-            video: false,
-          });
         }
+        notifyScreenShares();
+
+        localStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: false,
+        });
         if (cancelled) return;
         localStreamRef.current = localStream;
 
@@ -689,28 +954,11 @@ export default function VoiceWebRTC({
           () => selfUserIdRef.current ?? null,
         ).catch(() => {});
 
-        onLocalStreamRef.current?.(localStream);
-        localStreamReported = true;
-
-        // Add tracks; keep a handle to the video sender for replaceTrack(null) toggling.
+        // Add tracks.
         const audioTrack = localStream.getAudioTracks()[0] ?? null;
-        const videoTrack = localStream.getVideoTracks()[0] ?? null;
 
         if (audioTrack) {
           publisherPc.addTrack(audioTrack, localStream);
-        }
-        if (videoTrack) {
-          localVideoTrackRef.current = videoTrack;
-          videoTrack.enabled = videoEnabledRef.current;
-          const sender = publisherPc.addTrack(videoTrack, localStream);
-          videoSenderRef.current = sender;
-          if (!videoEnabledRef.current) {
-            try {
-              void sender.replaceTrack(null);
-            } catch {
-              // ignore
-            }
-          }
         }
         publisherPc.onicecandidate = (ev) => {
           if (!client) return;
@@ -725,7 +973,12 @@ export default function VoiceWebRTC({
 
         const answerMsg = await client.request<Extract<WSEnvelope, { type: "publish_answer" }>>(
           "publish_offer",
-          { jsep: { type: publisherPc.localDescription!.type, sdp: publisherPc.localDescription!.sdp } },
+          {
+            jsep: {
+              type: publisherPc.localDescription!.type,
+              sdp: publisherPc.localDescription!.sdp,
+            },
+          },
           "publish_answer",
         );
         if (cancelled) return;
@@ -737,6 +990,8 @@ export default function VoiceWebRTC({
 
         for (const p of ready.payload.publishers) {
           if (!p.feed_id || p.feed_id === selfFeedId) continue;
+          const meta = feedMetaById.get(p.feed_id);
+          if (meta?.kind === "screen") continue;
           ensureSubscriber(p.feed_id).catch(() => {});
         }
       } catch (err) {
@@ -757,8 +1012,12 @@ export default function VoiceWebRTC({
   if (!channelId) return null;
   return (
     <>
-      {Array.from(remoteTracksByFeed.entries()).map(([feedId, stream]) => (
-        <RemoteAudio key={feedId} stream={stream} />
+      {remoteTracks.map((track) => (
+        <RemoteAudio
+          key={track.feedId}
+          stream={track.stream}
+          volume={volumeByUserId[track.userId ?? ""] ?? 1}
+        />
       ))}
     </>
   );
