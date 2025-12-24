@@ -72,6 +72,14 @@ export default function VoicePanel({
   const [menu, setMenu] = useState<{ userId: string; x: number; y: number } | null>(
     null,
   );
+  const [fullscreen, setFullscreen] = useState<
+    | null
+    | {
+        userId: string;
+        feedId: string | null;
+        local: boolean;
+      }
+  >(null);
 
   const screenShareList = useMemo(() => {
     const list = [...screenShares];
@@ -108,6 +116,15 @@ export default function VoicePanel({
       window.removeEventListener("scroll", close, true);
     };
   }, [menu]);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") setFullscreen(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [fullscreen]);
 
   return (
     <>
@@ -177,92 +194,154 @@ export default function VoicePanel({
                     : "repeat(auto-fit, minmax(240px, 1fr))",
               }}
             >
-              {users.length ? (
-                users.map((user) => {
-                  const speaking = !!speakingByUserId?.[user.id];
-                  const isSingle = users.length === 1;
-                  const feedId = screenShareByUserId.get(user.id) ?? null;
-                  const isSharing = !!feedId;
-                  const isWatching =
-                    !!feedId && selectedScreenFeedId === feedId;
-                  const screenStream =
-                    feedId === "local"
-                      ? localScreenStream
-                      : feedId
-                        ? screenStreamsByFeedId[feedId]
-                        : null;
-                  const handleTileClick = () => {
-                    if (!feedId) {
-                      onFocusUser?.(user.id);
-                      return;
-                    }
-                    if (selectedScreenFeedId === feedId) {
-                      onLeaveScreen?.();
-                      return;
-                    }
-                    onWatchScreen?.(feedId);
-                  };
+	              {users.length ? (
+	                users.map((user) => {
+	                  const speaking = !!speakingByUserId?.[user.id];
+	                  const isSingle = users.length === 1;
+	                  const feedId = screenShareByUserId.get(user.id) ?? null;
+	                  const isSharing = !!feedId;
+	                  const isLocalShare = user.id === selfUserId && !!localScreenStream;
+	                  const isWatching = !!feedId && selectedScreenFeedId === feedId;
+	                  const screenStream = isLocalShare
+	                    ? localScreenStream
+	                    : feedId
+	                      ? screenStreamsByFeedId[feedId]
+	                      : null;
+	                  const showScreen = !!screenStream && (isLocalShare || isWatching);
+	                  const handleTileClick = () => {
+	                    if (isLocalShare) {
+	                      setFullscreen({
+	                        userId: user.id,
+	                        feedId: "local",
+	                        local: true,
+	                      });
+	                      return;
+	                    }
+	                    if (!feedId) {
+	                      onFocusUser?.(user.id);
+	                      return;
+	                    }
+	                    if (selectedScreenFeedId === feedId) {
+	                      onLeaveScreen?.();
+	                      return;
+	                    }
+	                    onWatchScreen?.(feedId);
+	                  };
 
-                  const isFocused = focusedUserId === user.id;
-                  return (
-                    <div
-                      key={user.id}
+	                  const handleFullscreen = (ev: any) => {
+	                    ev.preventDefault();
+	                    ev.stopPropagation();
+	                    if (!screenStream) return;
+	                    setFullscreen({ userId: user.id, feedId, local: isLocalShare });
+	                  };
+
+	                  const isFocused = focusedUserId === user.id;
+	                  return (
+	                    <div
+	                      key={user.id}
                       className={`relative overflow-hidden rounded-3xl border bg-(--panel-2) ${
                         speaking || isFocused
                           ? "border-(--accent)"
                           : "border-(--border)"
                       } ${isSingle ? "mx-auto w-full max-w-[900px]" : ""}`}
                       style={{ aspectRatio: "4 / 3" }}
-                      onContextMenu={(ev) => {
-                        ev.preventDefault();
-                        if (user.id === selfUserId) return;
-                        setMenu({ userId: user.id, x: ev.clientX, y: ev.clientY });
-                      }}
-                    >
-                      {isWatching && screenStream ? (
-                        <StreamVideo
-                          stream={screenStream}
-                          muted
-                          className="absolute inset-0 h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div
-                          className={`absolute inset-0 ${
-                            isSharing ? "blur-[6px] brightness-[0.75]" : ""
-                          }`}
-                        >
-                          <div className="absolute inset-0 flex items-center justify-center bg-(--bg-2) text-xl font-semibold">
-                            {user.username.slice(0, 1).toUpperCase()}
-                          </div>
-                        </div>
-                      )}
+	                      onContextMenu={(ev) => {
+	                        ev.preventDefault();
+	                        if (user.id === selfUserId) return;
+	                        setMenu({ userId: user.id, x: ev.clientX, y: ev.clientY });
+	                      }}
+	                    >
+	                      {showScreen && screenStream ? (
+	                        <StreamVideo
+	                          stream={screenStream}
+	                          muted
+	                          className="absolute inset-0 h-full w-full object-cover"
+	                        />
+	                      ) : (
+	                        <div
+	                          className={`absolute inset-0 ${
+	                            isSharing ? "blur-[6px] brightness-[0.75]" : ""
+	                          }`}
+	                        >
+	                          <div className="absolute inset-0 flex items-center justify-center bg-(--bg-2) text-xl font-semibold">
+	                            {user.username.slice(0, 1).toUpperCase()}
+	                          </div>
+	                        </div>
+	                      )}
 
                       <div className="absolute inset-x-0 bottom-0 flex items-center justify-between bg-black/45 px-4 py-3 text-sm text-white">
                         <span className="truncate">{user.username}</span>
                         {user.is_admin ? <span className="text-xs">★</span> : null}
                       </div>
 
-                      {isSharing && !isWatching ? (
-                        <button
-                          type="button"
-                          onClick={handleTileClick}
-                          className="absolute inset-0 flex items-center justify-center text-sm font-semibold text-white"
-                        >
-                          <span className="rounded-xl border border-white/40 bg-black/50 px-4 py-2">
-                            Смотреть эфир
-                          </span>
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={handleTileClick}
-                          className="absolute inset-0"
-                          aria-label="Выбрать плиту"
-                        />
-                      )}
-                    </div>
-                  );
-                })
+	                      {showScreen && screenStream ? (
+	                        <button
+	                          type="button"
+	                          onClick={handleFullscreen}
+	                          className="absolute right-3 top-3 z-20 rounded-full border border-white/20 bg-black/45 p-2 text-white backdrop-blur transition hover:bg-black/55"
+	                          aria-label="На весь экран"
+	                          title="На весь экран"
+	                        >
+	                          <svg
+	                            className="h-4 w-4"
+	                            viewBox="0 0 20 20"
+	                            fill="none"
+	                            xmlns="http://www.w3.org/2000/svg"
+	                            aria-hidden="true"
+	                          >
+	                            <path
+	                              d="M7 3H4.5C3.7 3 3 3.7 3 4.5V7"
+	                              stroke="currentColor"
+	                              strokeWidth="1.4"
+	                              strokeLinecap="round"
+	                              strokeLinejoin="round"
+	                            />
+	                            <path
+	                              d="M13 3H15.5C16.3 3 17 3.7 17 4.5V7"
+	                              stroke="currentColor"
+	                              strokeWidth="1.4"
+	                              strokeLinecap="round"
+	                              strokeLinejoin="round"
+	                            />
+	                            <path
+	                              d="M7 17H4.5C3.7 17 3 16.3 3 15.5V13"
+	                              stroke="currentColor"
+	                              strokeWidth="1.4"
+	                              strokeLinecap="round"
+	                              strokeLinejoin="round"
+	                            />
+	                            <path
+	                              d="M13 17H15.5C16.3 17 17 16.3 17 15.5V13"
+	                              stroke="currentColor"
+	                              strokeWidth="1.4"
+	                              strokeLinecap="round"
+	                              strokeLinejoin="round"
+	                            />
+	                          </svg>
+	                        </button>
+	                      ) : null}
+
+	                      {isSharing && !showScreen && !isLocalShare ? (
+	                        <button
+	                          type="button"
+	                          onClick={handleTileClick}
+	                          className="absolute inset-0 z-10 flex items-center justify-center text-sm font-semibold text-white"
+	                        >
+	                          <span className="rounded-xl border border-white/40 bg-black/50 px-4 py-2">
+	                            Смотреть эфир
+	                          </span>
+	                        </button>
+	                      ) : (
+	                        <button
+	                          type="button"
+	                          onClick={handleTileClick}
+	                          className="absolute inset-0 z-10"
+	                          aria-label="Выбрать плиту"
+	                        />
+	                      )}
+	                    </div>
+	                  );
+	                })
               ) : (
                 <div className="col-span-full text-sm text-(--muted)">
                   {roomName ? "Пока никого нет." : "Выбери голосовой канал."}
@@ -387,6 +466,72 @@ export default function VoicePanel({
           />
           <div className="mt-2 text-[11px] text-(--muted)">
             {Math.round((volumeByUserId[menu.userId] ?? 1) * 100)}%
+          </div>
+        </div>
+      ) : null}
+
+      {fullscreen ? (
+        <div
+          className="fixed inset-0 z-[60] flex flex-col bg-black/90"
+          onClick={() => setFullscreen(null)}
+          role="dialog"
+          aria-label="Просмотр трансляции"
+        >
+          <div className="flex items-center justify-between gap-3 px-4 py-3 text-white">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold">
+                Трансляция экрана
+              </div>
+              <div className="truncate text-xs text-white/70">
+                {fullscreen.userId}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs hover:bg-white/15"
+              onClick={(ev) => {
+                ev.stopPropagation();
+                setFullscreen(null);
+              }}
+            >
+              Закрыть
+            </button>
+          </div>
+
+          <div
+            className="relative flex-1 px-4 pb-4"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            {(() => {
+              const username =
+                users.find((u) => u.id === fullscreen.userId)?.username ??
+                fullscreen.userId;
+              const isLocal = fullscreen.local;
+              const stream = isLocal
+                ? localScreenStream
+                : fullscreen.feedId
+                  ? screenStreamsByFeedId[fullscreen.feedId]
+                  : null;
+              if (!stream) {
+                return (
+                  <div className="flex h-full w-full items-center justify-center text-sm text-white/70">
+                    Загрузка трансляции…
+                  </div>
+                );
+              }
+              return (
+                <div className="relative h-full w-full">
+                  <StreamVideo
+                    stream={stream}
+                    muted
+                    className="h-full w-full rounded-2xl object-contain"
+                  />
+                  <div className="pointer-events-none absolute bottom-3 left-3 rounded-xl bg-black/45 px-3 py-1.5 text-xs text-white">
+                    {username}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       ) : null}
