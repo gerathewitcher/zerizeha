@@ -36,10 +36,15 @@ services:
       - --log-file=stdout
       - --realm=${TURN_REALM}
       - --user=${TURN_USER}:${TURN_PASS}
+      # Bind on all interfaces, but relay only on the public IP to avoid
+      # allocating ports on Docker bridges (172.x) and exhausting the range.
+      - --listening-ip=${TURN_LISTENING_IP:-0.0.0.0}
+      - --relay-ip=${TURN_RELAY_IP}
       - --external-ip=${TURN_EXTERNAL_IP}
-      - --listening-port=3478
-      - --min-port=49160
-      - --max-port=49200
+      - --listening-port=${TURN_LISTENING_PORT:-3478}
+      # Increase/adjust relay port range if you see "no available ports".
+      - --min-port=${TURN_MIN_PORT:-49160}
+      - --max-port=${TURN_MAX_PORT:-49200}
       - --no-cli
     restart: unless-stopped
 
