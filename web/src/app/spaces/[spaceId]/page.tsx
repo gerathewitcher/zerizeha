@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import ChatPanel from "@/components/spaces/ChatPanel";
 import SpaceRail from "@/components/spaces/SpaceRail";
@@ -51,14 +52,52 @@ export default function SpacePage() {
   const [voiceSpeakingByUserId, setVoiceSpeakingByUserId] = useState<
     Record<string, boolean>
   >({});
-  const [videoEnabled, setVideoEnabled] = useState(false);
-  const [localMediaStream, setLocalMediaStream] = useState<MediaStream | null>(
+  const [screenShareEnabled, setScreenShareEnabled] = useState(false);
+  const [localScreenStream, setLocalScreenStream] = useState<MediaStream | null>(
     null,
   );
-  const [cameraError, setCameraError] = useState<string | null>(null);
-  const [videoStreamsByUserId, setVideoStreamsByUserId] = useState<
+  const [screenStreamsByFeedId, setScreenStreamsByFeedId] = useState<
     Record<string, MediaStream>
   >({});
+  const [screenShares, setScreenShares] = useState<
+    { feedId: string; userId: string }[]
+  >([]);
+  const [selectedScreenFeedId, setSelectedScreenFeedId] = useState<string | null>(
+    null,
+  );
+  const [focusedUserId, setFocusedUserId] = useState<string | null>(null);
+  const [connectionQuality, setConnectionQuality] = useState<
+    "good" | "ok" | "bad" | "unknown"
+  >("unknown");
+  const [voicePanelExpanded, setVoicePanelExpanded] = useState(false);
+  const [chatOpen, setChatOpen] = useState(true);
+  const lastManualFocusAtRef = useRef(0);
+  const lastActiveSpeakerIdRef = useRef<string | null>(null);
+  const [volumeByUserId, setVolumeByUserId] = useState<Record<string, number>>(
+    {},
+  );
+  const volumeStorageKey = "zerizeha.voice.volumeByUserId";
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(volumeStorageKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, number>;
+      if (parsed && typeof parsed === "object") {
+        setVolumeByUserId(parsed);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(volumeStorageKey, JSON.stringify(volumeByUserId));
+    } catch {
+      // ignore
+    }
+  }, [volumeByUserId]);
 
   useEffect(() => {
     if (!spaceId) return;
@@ -138,10 +177,15 @@ export default function SpacePage() {
     async (channelId: string) => {
       if (!channelId) return;
       if (channelId === activeVoiceChannelId) return;
-      setVideoEnabled(false);
-      setLocalMediaStream(null);
-      setCameraError(null);
-      setVideoStreamsByUserId({});
+      setScreenShareEnabled(false);
+      setLocalScreenStream(null);
+      setScreenStreamsByFeedId({});
+      setScreenShares([]);
+      setSelectedScreenFeedId(null);
+      setFocusedUserId(null);
+      setConnectionQuality("unknown");
+      setVoicePanelExpanded(true);
+      setChatOpen(false);
       try {
         await joinVoiceChannelById(channelId);
         setActiveVoiceChannelId(channelId);
@@ -179,10 +223,15 @@ export default function SpacePage() {
 
     if (success) {
       setActiveVoiceChannelId(null);
-      setVideoEnabled(false);
-      setLocalMediaStream(null);
-      setCameraError(null);
-      setVideoStreamsByUserId({});
+      setScreenShareEnabled(false);
+      setLocalScreenStream(null);
+      setScreenStreamsByFeedId({});
+      setScreenShares([]);
+      setSelectedScreenFeedId(null);
+      setFocusedUserId(null);
+      setConnectionQuality("unknown");
+      setVoicePanelExpanded(false);
+      setChatOpen(true);
       if (meSummary?.id) {
         setVoiceMembersByChannelId((prev) => {
           const next: Record<string, VoiceMember[]> = {};
@@ -196,11 +245,19 @@ export default function SpacePage() {
   }, [meSummary]);
 
   const handleSpeaking = useCallback((userId: string, speaking: boolean) => {
+    if (speaking) lastActiveSpeakerIdRef.current = userId;
     setVoiceSpeakingByUserId((prev) => {
       if (prev[userId] === speaking) return prev;
       return { ...prev, [userId]: speaking };
     });
   }, []);
+
+  const handleConnectionQuality = useCallback(
+    (quality: "good" | "ok" | "bad" | "unknown") => {
+      setConnectionQuality(quality);
+    },
+    [],
+  );
 
   const autoReconnectDone = useRef(false);
   useEffect(() => {
@@ -233,47 +290,94 @@ export default function SpacePage() {
       });
   }, [activeVoiceChannelId, meSummary?.id, voiceMembersByChannelId]);
 
-  const handleToggleVideo = useCallback(() => {
-    setVideoEnabled((v) => !v);
+  const handleToggleScreenShare = useCallback(() => {
+    setScreenShareEnabled((v) => !v);
   }, []);
 
-  const handleLocalStream = useCallback(
-    (stream: MediaStream | null) => {
-      setLocalMediaStream(stream);
-      const myId = meSummary?.id;
-      setVideoStreamsByUserId((prev) => {
-        const next = { ...prev };
-        if (!stream) {
-          if (myId) delete next[myId];
-          return next;
-        }
-        if (myId) next[myId] = stream;
-        return next;
-      });
+  const handleLocalScreenStream = useCallback((stream: MediaStream | null) => {
+    setLocalScreenStream(stream);
+  }, []);
+
+  const handleRemoteScreenStream = useCallback(
+    (feedId: string, _userId: string, stream: MediaStream) => {
+      setScreenStreamsByFeedId((prev) => ({ ...prev, [feedId]: stream }));
     },
-    [meSummary?.id],
+    [],
   );
 
-  useEffect(() => {
-    const myId = meSummary?.id;
-    if (!myId || !localMediaStream) return;
-    setVideoStreamsByUserId((prev) => {
-      if (prev[myId] === localMediaStream) return prev;
-      return { ...prev, [myId]: localMediaStream };
-    });
-  }, [localMediaStream, meSummary?.id]);
-
-  const handleRemoteStream = useCallback((userId: string, stream: MediaStream) => {
-    setVideoStreamsByUserId((prev) => ({ ...prev, [userId]: stream }));
-  }, []);
-
-  const handleRemoteStreamRemoved = useCallback((userId: string) => {
-    setVideoStreamsByUserId((prev) => {
-      if (!prev[userId]) return prev;
+  const handleRemoteScreenStreamRemoved = useCallback((feedId: string) => {
+    setScreenStreamsByFeedId((prev) => {
+      if (!prev[feedId]) return prev;
       const next = { ...prev };
-      delete next[userId];
+      delete next[feedId];
       return next;
     });
+    setSelectedScreenFeedId((prev) => (prev === feedId ? null : prev));
+  }, []);
+
+  const handleScreenSharesChange = useCallback(
+    (shares: { feedId: string; userId: string }[]) => {
+      setScreenShares(shares);
+      setSelectedScreenFeedId((prev) => {
+        if (!prev) return prev;
+        if (prev === "local") return prev;
+        return shares.some((s) => s.feedId === prev) ? prev : null;
+      });
+    },
+    [],
+  );
+
+  const handleScreenShareStateChange = useCallback((active: boolean) => {
+    setScreenShareEnabled(active);
+    if (!active) setLocalScreenStream(null);
+  }, []);
+
+  const handleWatchScreen = useCallback((feedId: string) => {
+    setSelectedScreenFeedId(feedId);
+    setFocusedUserId(null);
+  }, []);
+
+  const handleLeaveScreen = useCallback(() => {
+    setSelectedScreenFeedId(null);
+  }, []);
+
+  const handleFocusUser = useCallback((userId: string | null) => {
+    lastManualFocusAtRef.current = Date.now();
+    setFocusedUserId(userId);
+    setSelectedScreenFeedId(null);
+  }, []);
+
+  const handleToggleExpanded = useCallback(() => {
+    setVoicePanelExpanded((prev) => {
+      const next = !prev;
+      if (next) setChatOpen(false);
+      if (!next) setChatOpen(true);
+      return next;
+    });
+  }, []);
+
+  const handleVolumeChange = useCallback((userId: string, volume: number) => {
+    setVolumeByUserId((prev) => ({
+      ...prev,
+      [userId]: Math.max(0, Math.min(1, volume)),
+    }));
+  }, []);
+
+  useEffect(() => {
+    if (!voicePanelExpanded) return;
+    if (selectedScreenFeedId) return;
+    const lastSpeaker = lastActiveSpeakerIdRef.current;
+    if (!lastSpeaker) return;
+    if (!voiceSpeakingByUserId[lastSpeaker]) return;
+    const sinceManual = Date.now() - lastManualFocusAtRef.current;
+    if (sinceManual < 6000) return;
+    if (focusedUserId === lastSpeaker) return;
+    setFocusedUserId(lastSpeaker);
+  }, [voicePanelExpanded, selectedScreenFeedId, voiceSpeakingByUserId, focusedUserId]);
+
+  const handleToggleChat = useCallback(() => {
+    setChatOpen(true);
+    setVoicePanelExpanded(false);
   }, []);
 
   useEffect(() => {
@@ -355,8 +459,137 @@ export default function SpacePage() {
 
   return (
     <div className="min-h-screen bg-(--bg) text-(--text)">
-      <div className="flex h-screen overflow-hidden">
-        <SpaceRail spaces={railSpaces} />
+      <div className="md:hidden">
+        {state.status === "ready" ? (
+          <main className="px-5 py-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
+                  Пространство
+                </p>
+                <h1 className="mt-1 text-xl font-semibold">{state.space.name}</h1>
+              </div>
+              <Link
+                href="/spaces"
+                className="rounded-full border border-(--border) px-3 py-1.5 text-xs text-(--muted) transition hover:text-(--accent)"
+              >
+                Назад
+              </Link>
+            </div>
+
+            <div className="mt-6 space-y-6">
+              <section>
+                <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
+                  Текстовые
+                </p>
+                <div className="mt-3 space-y-2">
+                  {textChannels.map((channel) => (
+                    <div
+                      key={channel.id}
+                      className="flex items-center justify-between gap-3 rounded-2xl border border-(--border) bg-(--panel) px-4 py-3 text-sm text-(--muted)"
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="text-(--subtle)">#</span>
+                        <span className="truncate">{channel.name}</span>
+                      </div>
+                      <span className="text-xs text-(--subtle)">Чат скрыт</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section>
+                <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
+                  Голосовые
+                </p>
+                <div className="mt-3 space-y-2">
+                  {voiceChannels.map((channel) => {
+                    const memberCount =
+                      voiceMembersByChannelId[channel.id]?.length ?? 0;
+                    const members = voiceMembersByChannelId[channel.id] ?? [];
+                    return (
+                      <div key={channel.id} className="space-y-2">
+                        <div
+                          className={`flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-sm ${
+                            channel.id === activeVoiceChannelId
+                              ? "border-(--accent) bg-(--bg-2) text-(--text)"
+                              : "border-(--border) bg-(--panel) text-(--muted)"
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                            onClick={() => handleSelectVoiceChannel(channel.id)}
+                          >
+                            <span className="text-(--subtle)">🔊</span>
+                            <span className="truncate">{channel.name}</span>
+                          </button>
+                          <div className="flex items-center gap-2 text-xs text-(--subtle)">
+                            <span>{memberCount || "0"}</span>
+                            {channel.id === activeVoiceChannelId ? (
+                              <button
+                                type="button"
+                                onClick={handleLeaveVoiceChannel}
+                                className="text-xs text-(--accent)"
+                              >
+                                Выйти
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                        {members.length ? (
+                          <div className="space-y-1 pl-6 text-xs text-(--subtle)">
+                            {members.map((member) => (
+                              <div
+                                key={member.id}
+                                className="flex items-center gap-2"
+                              >
+                                <span
+                                  className={`h-1.5 w-1.5 rounded-full ${
+                                    voiceSpeakingByUserId[member.id]
+                                      ? "bg-(--accent) animate-[pulse_0.8s_ease-in-out_infinite]"
+                                      : "bg-(--border)"
+                                  }`}
+                                />
+                                <span className="truncate">
+                                  {member.username}
+                                </span>
+                                {member.is_admin ? (
+                                  <span className="text-(--accent)" title="Админ">
+                                    ★
+                                  </span>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            </div>
+          </main>
+        ) : state.status === "error" ? (
+          <main className="px-6 py-6">
+            <ErrorState
+              title={state.serverError ? "Сервис недоступен" : "Ошибка"}
+              message={state.message}
+              onAction={() => window.location.reload()}
+            />
+          </main>
+        ) : (
+          <main className="px-6 py-6">
+            <p className="text-sm text-(--muted)">Загрузка…</p>
+          </main>
+        )}
+      </div>
+
+      <div className="hidden h-screen overflow-hidden md:flex">
+        <SpaceRail
+          spaces={railSpaces}
+          isAdmin={meState.state.status === "ready" ? meState.state.me.is_admin : false}
+        />
         {state.status === "ready" ? (
           <>
             <SpaceSidebar
@@ -366,47 +599,42 @@ export default function SpacePage() {
               voiceChannels={voiceChannels}
               voiceMembersByChannelId={voiceMembersByChannelId}
               activeVoiceChannelId={activeVoiceChannelId}
+              speakingByUserId={voiceSpeakingByUserId}
+              connectionQuality={connectionQuality}
               onSelectVoiceChannel={handleSelectVoiceChannel}
               onLeaveVoiceChannel={handleLeaveVoiceChannel}
+              onToggleChat={handleToggleChat}
+              chatOpen={chatOpen}
+              volumeByUserId={volumeByUserId}
+              onVolumeChange={handleVolumeChange}
               onChannelsChanged={() => setReloadKey((v) => v + 1)}
             />
-            <ChatPanel
-              channelTitle={textChannels[0] ? `# ${textChannels[0].name}` : "#"}
-              messages={chatMessages}
-            />
+            {chatOpen && !voicePanelExpanded ? (
+              <ChatPanel
+                channelTitle={textChannels[0] ? `# ${textChannels[0].name}` : "#"}
+                messages={chatMessages}
+              />
+            ) : null}
             <VoicePanel
               users={activeVoiceMembers}
               roomName={activeVoiceChannelName || undefined}
               onLeave={handleLeaveVoiceChannel}
               speakingByUserId={voiceSpeakingByUserId}
               selfUserId={meSummary?.id ?? null}
-              videoEnabled={videoEnabled}
-              onToggleVideo={handleToggleVideo}
-              localMediaStream={localMediaStream}
-              cameraError={cameraError}
-              videoStreamsByUserId={videoStreamsByUserId}
-            />
-            <VoiceWebRTC
-              channelId={activeVoiceChannelId}
-              onSpeaking={handleSpeaking}
-              selfUserId={meSummary?.id ?? null}
-              videoEnabled={videoEnabled}
-              onLocalStream={handleLocalStream}
-              onRemoteStream={handleRemoteStream}
-              onRemoteStreamRemoved={handleRemoteStreamRemoved}
-              onCameraError={setCameraError}
-              onFatalError={() => {
-                // If we fail to bootstrap/reconnect, clean stale "in channel" presence.
-                leaveVoiceChannel()
-                  .catch(() => {})
-                  .finally(() => {
-                    setActiveVoiceChannelId(null);
-                    setVideoEnabled(false);
-                    setLocalMediaStream(null);
-                    setCameraError(null);
-                    setVideoStreamsByUserId({});
-                  });
-              }}
+              screenShareEnabled={screenShareEnabled}
+              onToggleScreenShare={handleToggleScreenShare}
+              localScreenStream={localScreenStream}
+              screenShares={screenShares}
+              screenStreamsByFeedId={screenStreamsByFeedId}
+              selectedScreenFeedId={selectedScreenFeedId}
+              onWatchScreen={handleWatchScreen}
+              onLeaveScreen={handleLeaveScreen}
+              expanded={voicePanelExpanded}
+              onToggleExpanded={handleToggleExpanded}
+              focusedUserId={focusedUserId}
+              onFocusUser={handleFocusUser}
+              volumeByUserId={volumeByUserId}
+              onVolumeChange={handleVolumeChange}
             />
           </>
         ) : state.status === "error" ? (
@@ -423,6 +651,39 @@ export default function SpacePage() {
           </main>
         )}
       </div>
+      {state.status === "ready" ? (
+        <VoiceWebRTC
+          channelId={activeVoiceChannelId}
+          onSpeaking={handleSpeaking}
+          selfUserId={meSummary?.id ?? null}
+          onLocalScreenStream={handleLocalScreenStream}
+          onRemoteScreenStream={handleRemoteScreenStream}
+          onRemoteScreenStreamRemoved={handleRemoteScreenStreamRemoved}
+          onScreenSharesChange={handleScreenSharesChange}
+          onConnectionQuality={handleConnectionQuality}
+          screenShareEnabled={screenShareEnabled}
+          onScreenShareStateChange={handleScreenShareStateChange}
+          watchFeedId={selectedScreenFeedId === "local" ? null : selectedScreenFeedId}
+          volumeByUserId={volumeByUserId}
+          onFatalError={() => {
+            // If we fail to bootstrap/reconnect, clean stale "in channel" presence.
+            leaveVoiceChannel()
+              .catch(() => {})
+              .finally(() => {
+                setActiveVoiceChannelId(null);
+                setScreenShareEnabled(false);
+                setLocalScreenStream(null);
+                setScreenStreamsByFeedId({});
+                setScreenShares([]);
+                setSelectedScreenFeedId(null);
+                setFocusedUserId(null);
+                setConnectionQuality("unknown");
+                setVoicePanelExpanded(false);
+                setChatOpen(true);
+              });
+          }}
+        />
+      ) : null}
     </div>
   );
 }
