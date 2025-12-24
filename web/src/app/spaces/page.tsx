@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import SpaceRail from "@/components/spaces/SpaceRail";
 import { fetchSpaces } from "@/lib/api/spaces";
 import ErrorState from "@/components/ui/ErrorState";
@@ -77,11 +78,105 @@ export default function SpacesPage() {
 
   return (
     <div className="min-h-screen bg-(--bg) text-(--text)">
-      <div className="flex h-screen overflow-hidden">
-        <SpaceRail
-          spaces={railSpaces}
-          defaultExpanded
-        />
+      <div className="md:hidden">
+        <main className="px-5 py-6">
+          {meState.state.status === "loading" ? (
+            <div className="rounded-2xl border border-(--border) bg-(--panel) p-4">
+              <div className="flex items-center gap-4">
+                <div className="h-12 w-12 animate-pulse rounded-2xl bg-(--bg-2)" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="h-4 w-40 animate-pulse rounded bg-(--bg-2)" />
+                  <div className="h-3 w-24 animate-pulse rounded bg-(--bg-2)" />
+                </div>
+              </div>
+            </div>
+          ) : profile ? (
+            <div className="rounded-2xl border border-(--border) bg-(--panel) p-4">
+              <div className="flex items-center gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-(--bg-2) text-lg font-semibold">
+                  {profile.initial}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="truncate font-(--font-display) text-lg">
+                      {profile.username}
+                    </p>
+                    {profile.isAdmin ? (
+                      <span
+                        className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-(--border) bg-(--bg-2) text-(--accent)"
+                        title="Админ"
+                        aria-label="Админ"
+                      >
+                        <svg
+                          className="h-3.5 w-3.5"
+                          viewBox="0 0 16 16"
+                          fill="none"
+                          xmlns="http://www.w3.org/2000/svg"
+                          aria-hidden="true"
+                        >
+                          <path
+                            d="M3 6.2L5.2 8.1L8 4.2L10.8 8.1L13 6.2V11.5C13 12.3 12.3 13 11.5 13H4.5C3.7 13 3 12.3 3 11.5V6.2Z"
+                            stroke="currentColor"
+                            strokeWidth="1.2"
+                            strokeLinejoin="round"
+                          />
+                          <path
+                            d="M5 12.2H11"
+                            stroke="currentColor"
+                            strokeWidth="1.2"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-(--subtle)">Твой профиль</p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="mt-6">
+            <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
+              Пространства
+            </p>
+            <div className="mt-3 space-y-2">
+              {state.status === "loading" ? (
+                <p className="text-sm text-(--muted)">Загрузка…</p>
+              ) : state.status === "error" ? (
+                <ErrorState
+                  title={state.serverError ? "Сервис недоступен" : "Ошибка"}
+                  message={state.message}
+                  onAction={loadSpaces}
+                />
+              ) : state.spaces.length ? (
+                state.spaces.map((space) => (
+                  <Link
+                    key={space.id}
+                    href={`/spaces/${space.id}`}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-(--border) bg-(--panel) px-4 py-3 text-sm font-semibold transition hover:border-(--accent) hover:text-(--accent)"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-(--bg-2) text-base">
+                        {space.name.slice(0, 1).toUpperCase()}
+                      </span>
+                      <span className="truncate">{space.name}</span>
+                    </div>
+                    <span className="text-xs text-(--subtle)">Открыть</span>
+                  </Link>
+                ))
+              ) : (
+                <p className="text-sm text-(--muted)">
+                  Пока нет пространств. Создай первое.
+                </p>
+              )}
+            </div>
+          </div>
+        </main>
+      </div>
+
+      <div className="hidden h-screen overflow-hidden md:flex">
+        <SpaceRail spaces={railSpaces} defaultExpanded />
         <main className="flex min-w-0 flex-1 items-center justify-center px-6">
           {state.status === "loading" ? (
             <p className="text-sm text-(--muted)">Загрузка…</p>
