@@ -247,7 +247,7 @@ func (s *Service) Publish(ctx context.Context, sessionID int64, handleID int64, 
 	events, cancel := s.client.Subscribe(256)
 	defer cancel()
 
-	hasVideo := strings.Contains(offer.SDP, "m=video")
+	hasVideo := sdpHasSendingVideo(offer.SDP)
 	body, _ := json.Marshal(publishBody{
 		Request: "publish",
 		Audio:   true,
@@ -305,6 +305,22 @@ func (s *Service) Publish(ctx context.Context, sessionID int64, handleID int64, 
 		return service.JanusJSEP{}, errors.New("janus publish: missing jsep answer")
 	}
 	return answer, nil
+}
+
+func sdpHasSendingVideo(sdp string) bool {
+	idx := strings.Index(sdp, "m=video")
+	if idx < 0 {
+		return false
+	}
+	rest := sdp[idx:]
+	next := strings.Index(rest[1:], "\nm=")
+	section := rest
+	if next >= 0 {
+		section = rest[:next+1]
+	}
+	section = strings.ToLower(section)
+	// We only want to claim "video: true" if we're actually sending video.
+	return strings.Contains(section, "a=sendrecv") || strings.Contains(section, "a=sendonly")
 }
 
 func (s *Service) AttachSubscriber(ctx context.Context, sessionID int64) (int64, error) {
