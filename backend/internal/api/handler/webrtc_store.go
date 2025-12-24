@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gofiber/contrib/websocket"
 	"github.com/google/uuid"
 
 	"zerizeha/internal/service"
@@ -22,8 +23,13 @@ type webrtcConn struct {
 	JanusSessionID          int64
 	PublisherHandleID       int64
 	PublisherFeedID         string
+	ScreenHandleID          int64
+	ScreenFeedID            string
 	KnownPublishers         []service.JanusPublisher
 	SubscriberHandlesByFeed map[string]int64
+
+	wsMu sync.Mutex
+	ws   *websocket.Conn
 }
 
 type webrtcStore struct {
@@ -61,8 +67,37 @@ func (s *webrtcStore) Get(id string) (*webrtcConn, bool) {
 	return conn, ok
 }
 
+func (s *webrtcStore) ForEach(fn func(*webrtcConn)) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, conn := range s.conns {
+		fn(conn)
+	}
+}
+
 func (s *webrtcStore) Delete(id string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.conns, id)
+}
+
+func (c *webrtcConn) SetWS(conn *websocket.Conn) {
+	c.wsMu.Lock()
+	c.ws = conn
+	c.wsMu.Unlock()
+}
+
+func (c *webrtcConn) ClearWS() {
+	c.wsMu.Lock()
+	c.ws = nil
+	c.wsMu.Unlock()
+}
+
+func (c *webrtcConn) SendWS(msg wsEnvelope) {
+	c.wsMu.Lock()
+	defer c.wsMu.Unlock()
+	if c.ws == nil {
+		return
+	}
+	_ = writeWS(c.ws, msg)
 }
