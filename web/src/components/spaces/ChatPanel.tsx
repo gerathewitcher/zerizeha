@@ -8,13 +8,45 @@ type ChatMessage = {
 type ChatPanelProps = {
   channelTitle: string;
   messages: ChatMessage[];
+  onOpenSpaces?: () => void;
+  onOpenChannels?: () => void;
+  onOpenVoice?: () => void;
 };
 
-export default function ChatPanel({ channelTitle, messages }: ChatPanelProps) {
+export default function ChatPanel({
+  channelTitle,
+  messages,
+  onOpenSpaces,
+  onOpenChannels,
+  onOpenVoice,
+}: ChatPanelProps) {
   return (
     <section className="flex min-w-0 flex-1 flex-col">
-      <header className="flex items-center justify-between border-b border-(--border) bg-(--panel) px-6 py-4">
-        <div>
+      <header className="flex flex-col gap-3 border-b border-(--border) bg-(--panel) px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2 sm:gap-1">
+          <div className="flex items-center gap-2 md:hidden">
+            <button
+              type="button"
+              onClick={onOpenSpaces}
+              className="rounded-full border border-(--border) px-3 py-1.5 text-xs text-(--muted) transition hover:text-(--accent)"
+            >
+              Пространства
+            </button>
+            <button
+              type="button"
+              onClick={onOpenChannels}
+              className="rounded-full border border-(--border) px-3 py-1.5 text-xs text-(--muted) transition hover:text-(--accent)"
+            >
+              Каналы
+            </button>
+            <button
+              type="button"
+              onClick={onOpenVoice}
+              className="rounded-full border border-(--border) px-3 py-1.5 text-xs text-(--muted) transition hover:text-(--accent)"
+            >
+              Участники
+            </button>
+          </div>
           <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
             Текстовый канал
           </p>
