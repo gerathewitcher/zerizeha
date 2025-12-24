@@ -16,6 +16,21 @@ import (
 	"zerizeha/pkg/logger"
 )
 
+func sdpHasSendingVideo(sdp string) bool {
+	idx := strings.Index(sdp, "m=video")
+	if idx < 0 {
+		return false
+	}
+	rest := sdp[idx:]
+	next := strings.Index(rest[1:], "\nm=")
+	section := rest
+	if next >= 0 {
+		section = rest[:next+1]
+	}
+	section = strings.ToLower(section)
+	return strings.Contains(section, "a=sendrecv") || strings.Contains(section, "a=sendonly")
+}
+
 func (h *Handler) WebRTCWebSocket(c *fiber.Ctx, connectionId string) error {
 	if !websocket.IsWebSocketUpgrade(c) {
 		return writeHTTPError(c, fiber.StatusUpgradeRequired, "upgrade required")
@@ -66,6 +81,8 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 		_ = c.Close()
 		return
 	}
+	conn.SetWS(c)
+	defer conn.ClearWS()
 
 	logger.Info("webrtc ws connected",
 		slog.String("user_id", userID),
@@ -79,7 +96,7 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 		Subscribe(buffer int) (<-chan janus.Message, func())
 	})
 	if !ok {
-		_ = writeWS(c, wsEnvelope{Type: "error", Payload: []byte(`{"message":"janus service does not support events"}`)})
+		conn.SendWS(wsEnvelope{Type: "error", Payload: []byte(`{"message":"janus service does not support events"}`)})
 		_ = c.Close()
 		return
 	}
@@ -141,6 +158,8 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 					var feedID string
 					if handleID == conn.PublisherHandleID {
 						target = "publisher"
+					} else if handleID == conn.ScreenHandleID {
+						target = "screen_publisher"
 					} else {
 						conn.mu.Lock()
 						for feed, hID := range conn.SubscriberHandlesByFeed {
@@ -164,7 +183,7 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 							slog.String("target", target),
 							slog.String("feed_id", feedID),
 						)
-					_ = writeWS(c, wsEnvelope{Type: "trickle", Payload: payload})
+					conn.SendWS(wsEnvelope{Type: "trickle", Payload: payload})
 					continue
 				}
 
@@ -195,7 +214,7 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 								"feed_id": p.ID,
 								"display": p.Display,
 							})
-							_ = writeWS(c, wsEnvelope{Type: "publisher_joined", Payload: payload})
+							conn.SendWS(wsEnvelope{Type: "publisher_joined", Payload: payload})
 						}
 					}
 					left := update.Leaving
@@ -209,7 +228,7 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 							slog.String("feed_id", left),
 							)
 							payload, _ := json.Marshal(map[string]any{"feed_id": left})
-							_ = writeWS(c, wsEnvelope{Type: "publisher_left", Payload: payload})
+							conn.SendWS(wsEnvelope{Type: "publisher_left", Payload: payload})
 						}
 				}
 			}
@@ -225,7 +244,7 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 		}
 		conn.mu.Unlock()
 		payload, _ := json.Marshal(map[string]any{"publishers": initial})
-		_ = writeWS(c, wsEnvelope{Type: "ready", Payload: payload})
+		conn.SendWS(wsEnvelope{Type: "ready", Payload: payload})
 	}
 
 	for {
@@ -254,7 +273,7 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 				} `json:"jsep"`
 			}
 			if err := json.Unmarshal(msg.Payload, &payload); err != nil {
-				_ = writeWS(c, wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"invalid payload"}`)})
+				conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"invalid payload"}`)})
 				continue
 			}
 
@@ -274,7 +293,7 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 					slog.String("room_id", conn.RoomID),
 					slog.String("err", err.Error()),
 				)
-				_ = writeWS(c, wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"publish failed"}`)})
+				conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"publish failed"}`)})
 				continue
 			}
 
@@ -284,14 +303,116 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 					"sdp":  answer.SDP,
 				},
 			})
-			_ = writeWS(c, wsEnvelope{Type: "publish_answer", RequestID: msg.RequestID, Payload: respPayload})
+			conn.SendWS(wsEnvelope{Type: "publish_answer", RequestID: msg.RequestID, Payload: respPayload})
+
+		case "screen_publish_offer":
+			var payload struct {
+				JSEP struct {
+					Type string `json:"type"`
+					SDP  string `json:"sdp"`
+				} `json:"jsep"`
+			}
+			if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+				conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"invalid payload"}`)})
+				continue
+			}
+
+			logger.Info("webrtc ws screen_publish_offer",
+				slog.String("user_id", userID),
+				slog.String("connection_id", connectionID),
+				slog.String("room_id", conn.RoomID),
+			)
+
+			ctxReq, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+
+			conn.mu.Lock()
+			screenHandleID := conn.ScreenHandleID
+			screenFeedID := conn.ScreenFeedID
+			conn.mu.Unlock()
+			screenDisplay := conn.Display + "|screen"
+
+			if screenHandleID == 0 {
+				handleID, err := h.janus.AttachVideoroom(ctxReq, conn.JanusSessionID)
+				if err != nil {
+					cancel()
+					logger.Error("webrtc ws screen attach videoroom failed",
+						slog.String("user_id", userID),
+						slog.String("connection_id", connectionID),
+						slog.String("room_id", conn.RoomID),
+						slog.String("err", err.Error()),
+					)
+					conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"screen attach failed"}`)})
+					continue
+				}
+				screenHandleID = handleID
+				feedID, _, err := h.janus.JoinPublisher(ctxReq, conn.JanusSessionID, screenHandleID, conn.RoomID, screenDisplay)
+				if err != nil {
+					var vrErr *janus.VideoroomError
+					if errors.As(err, &vrErr) && vrErr.Code == 426 {
+						if ensureErr := h.janus.EnsureRoom(ctxReq, conn.JanusSessionID, conn.PublisherHandleID, conn.RoomID); ensureErr == nil {
+							feedID, _, err = h.janus.JoinPublisher(ctxReq, conn.JanusSessionID, screenHandleID, conn.RoomID, screenDisplay)
+						} else {
+							err = ensureErr
+						}
+					}
+				}
+				if err != nil {
+					cancel()
+					logger.Error("webrtc ws screen join failed",
+						slog.String("user_id", userID),
+						slog.String("connection_id", connectionID),
+						slog.String("room_id", conn.RoomID),
+						slog.String("err", err.Error()),
+					)
+					conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"screen join failed"}`)})
+					continue
+				}
+				screenFeedID = feedID
+				conn.mu.Lock()
+				conn.ScreenHandleID = screenHandleID
+				conn.ScreenFeedID = screenFeedID
+				conn.mu.Unlock()
+			}
+
+			answer, err := h.janus.Publish(ctxReq, conn.JanusSessionID, screenHandleID, service.JanusJSEP{Type: payload.JSEP.Type, SDP: payload.JSEP.SDP})
+			cancel()
+			if err != nil {
+				logger.Error("webrtc ws screen publish failed",
+					slog.String("user_id", userID),
+					slog.String("connection_id", connectionID),
+					slog.String("room_id", conn.RoomID),
+					slog.String("err", err.Error()),
+				)
+				conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"screen publish failed"}`)})
+				continue
+			}
+
+			respPayload, _ := json.Marshal(map[string]any{
+				"feed_id": screenFeedID,
+				"jsep": map[string]any{
+					"type": answer.Type,
+					"sdp":  answer.SDP,
+				},
+			})
+			conn.SendWS(wsEnvelope{Type: "screen_publish_answer", RequestID: msg.RequestID, Payload: respPayload})
+
+			joinPayload, _ := json.Marshal(map[string]any{
+				"feed_id": screenFeedID,
+				"display": screenDisplay,
+			})
+			h.webrtc.ForEach(func(other *webrtcConn) {
+				if other.RoomID != conn.RoomID || other.ID == conn.ID {
+					return
+				}
+				other.SendWS(wsEnvelope{Type: "publisher_joined", Payload: joinPayload})
+			})
 
 			case "subscribe":
 				var payload struct {
 					FeedID string `json:"feed_id"`
 				}
 				if err := json.Unmarshal(msg.Payload, &payload); err != nil || payload.FeedID == "" {
-					_ = writeWS(c, wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"invalid payload"}`)})
+					conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"invalid payload"}`)})
 					continue
 				}
 
@@ -313,7 +434,7 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 							slog.String("feed_id", payload.FeedID),
 							slog.String("err", err.Error()),
 						)
-				_ = writeWS(c, wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"attach subscriber failed"}`)})
+				conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"attach subscriber failed"}`)})
 				continue
 			}
 
@@ -350,7 +471,7 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 					"message": "subscribe failed",
 					"err":     err.Error(),
 				})
-				_ = writeWS(c, wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: payloadErr})
+				conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: payloadErr})
 				continue
 			}
 
@@ -365,7 +486,7 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 					"sdp":  offer.SDP,
 				},
 			})
-			_ = writeWS(c, wsEnvelope{Type: "subscribe_offer", RequestID: msg.RequestID, Payload: respPayload})
+			conn.SendWS(wsEnvelope{Type: "subscribe_offer", RequestID: msg.RequestID, Payload: respPayload})
 
 			case "subscribe_answer":
 				var payload struct {
@@ -376,7 +497,7 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 					} `json:"jsep"`
 				}
 				if err := json.Unmarshal(msg.Payload, &payload); err != nil || payload.FeedID == "" {
-					_ = writeWS(c, wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"invalid payload"}`)})
+					conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"invalid payload"}`)})
 					continue
 				}
 
@@ -384,7 +505,7 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 			subHandleID := conn.SubscriberHandlesByFeed[payload.FeedID]
 			conn.mu.Unlock()
 			if subHandleID == 0 {
-				_ = writeWS(c, wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"unknown feed"}`)})
+				conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"unknown feed"}`)})
 				continue
 			}
 
@@ -398,19 +519,19 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 							slog.String("feed_id", payload.FeedID),
 							slog.String("err", err.Error()),
 						)
-				_ = writeWS(c, wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"start subscriber failed"}`)})
+				conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"start subscriber failed"}`)})
 				continue
 			}
-			_ = writeWS(c, wsEnvelope{Type: "subscribe_answer_ack", RequestID: msg.RequestID})
+			conn.SendWS(wsEnvelope{Type: "subscribe_answer_ack", RequestID: msg.RequestID})
 
-			case "trickle":
-				var payload struct {
-					Target    string          `json:"target"`
-					FeedID    string          `json:"feed_id,omitempty"`
-					Candidate json.RawMessage `json:"candidate"`
-				}
+		case "trickle":
+			var payload struct {
+				Target    string          `json:"target"`
+				FeedID    string          `json:"feed_id,omitempty"`
+				Candidate json.RawMessage `json:"candidate"`
+			}
 			if err := json.Unmarshal(msg.Payload, &payload); err != nil || len(payload.Candidate) == 0 {
-				_ = writeWS(c, wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"invalid payload"}`)})
+				conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"invalid payload"}`)})
 				continue
 			}
 
@@ -419,9 +540,11 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 				conn.mu.Lock()
 				handleID = conn.SubscriberHandlesByFeed[payload.FeedID]
 				conn.mu.Unlock()
+			} else if payload.Target == "screen_publisher" {
+				handleID = conn.ScreenHandleID
 			}
 			if handleID == 0 {
-				_ = writeWS(c, wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"unknown target"}`)})
+				conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"unknown target"}`)})
 				continue
 			}
 
@@ -436,11 +559,23 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 						slog.String("feed_id", payload.FeedID),
 						slog.String("err", err.Error()),
 					)
-				_ = writeWS(c, wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"trickle failed"}`)})
+				conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"trickle failed"}`)})
 				continue
 			}
-			_ = writeWS(c, wsEnvelope{Type: "trickle_ack", RequestID: msg.RequestID})
+			conn.SendWS(wsEnvelope{Type: "trickle_ack", RequestID: msg.RequestID})
 
+		case "screen_leave":
+			conn.mu.Lock()
+			screenHandleID := conn.ScreenHandleID
+			conn.ScreenHandleID = 0
+			conn.ScreenFeedID = ""
+			conn.mu.Unlock()
+			if screenHandleID != 0 {
+				ctxReq, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				_ = h.janus.Detach(ctxReq, conn.JanusSessionID, screenHandleID)
+				cancel()
+			}
+			conn.SendWS(wsEnvelope{Type: "screen_leave_ack", RequestID: msg.RequestID})
 		case "leave":
 			_ = c.Close()
 			return
