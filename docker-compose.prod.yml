@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -103,6 +101,8 @@ services:
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.51.0
     command:
+      - --docker=unix:///var/run/docker.sock
+      - --docker_only=true
       - --disable_metrics=percpu,process,sched,tcp,udp,disk,diskIO
     pid: host
     volumes:
