@@ -32,6 +32,16 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Download Node runtime
+        shell: pwsh
+        run: |
+          $nodeVersion = "v20.11.1"
+          $zipName = "node-$nodeVersion-win-x64.zip"
+          $url = "https://nodejs.org/dist/$nodeVersion/$zipName"
+          Invoke-WebRequest -Uri $url -OutFile $zipName
+          Expand-Archive -Path $zipName -DestinationPath node-dist
+          Copy-Item -Path "node-dist/node-$nodeVersion-win-x64/node.exe" -Destination "src-tauri/bin/node.exe" -Force
+
       - name: Build Tauri app
         run: npm run tauri:build
 

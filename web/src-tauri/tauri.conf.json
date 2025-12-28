@@ -5,8 +5,8 @@
   "identifier": "com.zerizeha.app",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
-    "frontendDist": "../out",
+    "beforeBuildCommand": "npm run build && npm run tauri:prep",
+    "frontendDist": "../src-tauri/loader",
     "devUrl": "http://localhost:3000"
   },
   "app": {
@@ -25,6 +25,13 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": []
+    "icon": [],
+    "resources": [
+      "../.next/standalone/**",
+      "../.next/static/**",
+      "../public/**",
+      "bin/node.exe",
+      "bin/node"
+    ]
   }
 }
