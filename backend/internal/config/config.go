@@ -27,6 +27,9 @@ const (
 	jwtSecretEnvName             = "JWT_SECRET"
 	googleClientIDEnvName        = "GOOGLE_CLIENT_ID"
 	googleClientSecretEnvName    = "GOOGLE_CLIENT_SECRET"
+	googleDesktopIDEnvName       = "GOOGLE_DESKTOP_CLIENT_ID"
+	googleDesktopSecretEnvName   = "GOOGLE_DESKTOP_CLIENT_SECRET"
+	googleDesktopRedirectEnvName = "GOOGLE_DESKTOP_REDIRECT"
 	githubClientIDEnvName        = "GITHUB_CLIENT_ID"
 	githubClientSecretEnvName    = "GITHUB_CLIENT_SECRET"
 	yandexClientIDEnvName        = "YANDEX_CLIENT_ID"
@@ -86,6 +89,9 @@ type config struct {
 type OAuthConfig struct {
 	GoogleClientID       string
 	GoogleClientSecret   string
+	GoogleDesktopID      string
+	GoogleDesktopSecret  string
+	GoogleDesktopRedirect string
 	GithubClientID       string
 	GithubClientSecret   string
 	YandexClientID       string
@@ -106,6 +112,9 @@ func NewConfig() (Config, error) {
 	vars[jwtSecretEnvName] = os.Getenv(jwtSecretEnvName)
 	vars[googleClientIDEnvName] = os.Getenv(googleClientIDEnvName)
 	vars[googleClientSecretEnvName] = os.Getenv(googleClientSecretEnvName)
+	googleDesktopID := os.Getenv(googleDesktopIDEnvName)
+	googleDesktopSecret := os.Getenv(googleDesktopSecretEnvName)
+	googleDesktopRedirect := os.Getenv(googleDesktopRedirectEnvName)
 	vars[githubClientIDEnvName] = os.Getenv(githubClientIDEnvName)
 	vars[githubClientSecretEnvName] = os.Getenv(githubClientSecretEnvName)
 	vars[oauthRedirectBaseEnvName] = os.Getenv(oauthRedirectBaseEnvName)
@@ -161,6 +170,9 @@ func NewConfig() (Config, error) {
 		oauth: OAuthConfig{
 			GoogleClientID:       vars[googleClientIDEnvName],
 			GoogleClientSecret:   vars[googleClientSecretEnvName],
+			GoogleDesktopID:      googleDesktopID,
+			GoogleDesktopSecret:  googleDesktopSecret,
+			GoogleDesktopRedirect: googleDesktopRedirect,
 			GithubClientID:       vars[githubClientIDEnvName],
 			GithubClientSecret:   vars[githubClientSecretEnvName],
 			YandexClientID:       yandexClientID,

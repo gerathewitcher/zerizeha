@@ -7,14 +7,19 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "generate:api": "openapi-codegen gen api"
+    "generate:api": "openapi-codegen gen api",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.2.0",
+    "@tauri-apps/plugin-shell": "^2.2.0",
     "next": "16.1.0",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.2.0",
     "@openapi-codegen/cli": "3.1.0",
     "@openapi-codegen/typescript": "11.1.0",
     "@tailwindcss/postcss": "^4",

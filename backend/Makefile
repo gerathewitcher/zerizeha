@@ -2,6 +2,7 @@ LOCAL_BIN:=$(CURDIR)/bin
 OAPI_BIN:=$(LOCAL_BIN)/oapi-codegen
 OPENAPI_SPEC:=./docs/openapi.yaml
 OAPI_CONFIG:=./oapi-codegen.yaml
+MIGRATIONS_DIR?=./migrations
 
 include .env
 

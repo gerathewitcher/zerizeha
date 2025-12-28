@@ -367,6 +367,13 @@ export default function VoiceWebRTC({
       return;
     }
 
+    if (typeof RTCPeerConnection === "undefined") {
+      onFatalErrorRef.current?.(
+        "WebRTC недоступен в этом окружении. Попробуйте другой билд/ОС.",
+      );
+      return;
+    }
+
     let cancelled = false;
     const rtcConfig = { iceServers: buildIceServers() };
 

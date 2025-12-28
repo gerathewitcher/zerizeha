@@ -17,22 +17,31 @@ func (h *Handler) Health(c *fiber.Ctx) error {
 }
 
 func (h *Handler) GoogleLogin(c *fiber.Ctx) error {
+	desktop := strings.EqualFold(c.Query("client"), "desktop")
 	state, err := generateState()
 	if err != nil {
 		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "failed to generate state"})
 	}
 
-	h.setStateCookie(c, "google", state)
-	return c.Redirect(h.authService.GoogleAuthURL(state), http.StatusTemporaryRedirect)
+	prefixedState := state
+	if desktop {
+		prefixedState = "desktop:" + state
+	}
+
+	h.setStateCookie(c, "google", prefixedState)
+	return c.Redirect(h.authService.GoogleAuthURL(prefixedState, desktop), http.StatusTemporaryRedirect)
 }
 
 func (h *Handler) GoogleCallback(c *fiber.Ctx, params api.GoogleCallbackParams) error {
-	if err := h.verifyStateCookie(c, "google", params.State); err != nil {
-		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	isDesktop := strings.EqualFold(c.Query("client"), "desktop") || strings.HasPrefix(params.State, "desktop:")
+	if !isDesktop {
+		if err := h.verifyStateCookie(c, "google", params.State); err != nil {
+			return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+		}
 	}
 
-	response, err := h.authService.HandleGoogleCallback(c.UserContext(), params.Code)
-	return h.handleAuthResponse(c, response, err, true)
+	response, err := h.authService.HandleGoogleCallback(c.UserContext(), params.Code, isDesktop)
+	return h.handleAuthResponse(c, response, err, !isDesktop)
 }
 
 func (h *Handler) GithubLogin(c *fiber.Ctx) error {

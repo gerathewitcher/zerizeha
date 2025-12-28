@@ -28,10 +28,10 @@ var (
 )
 
 type Service interface {
-	GoogleAuthURL(state string) string
+	GoogleAuthURL(state string, desktop bool) string
 	GithubAuthURL(state string) string
 	YandexAuthURL(state string) string
-	HandleGoogleCallback(ctx context.Context, code string) (TokenResponse, error)
+	HandleGoogleCallback(ctx context.Context, code string, desktop bool) (TokenResponse, error)
 	HandleGithubCallback(ctx context.Context, code string) (TokenResponse, error)
 	HandleYandexCallback(ctx context.Context, code string) (TokenResponse, error)
 	Refresh(ctx context.Context, refreshToken string) (TokenResponse, error)
@@ -85,8 +85,8 @@ func NewService(userService service.UserService, cfg config.Config) Service {
 	return &serviceImpl{userService: userService, cfg: cfg}
 }
 
-func (s *serviceImpl) GoogleAuthURL(state string) string {
-	return s.googleOAuthConfig().AuthCodeURL(
+func (s *serviceImpl) GoogleAuthURL(state string, desktop bool) string {
+	return s.googleOAuthConfig(desktop).AuthCodeURL(
 		state,
 		oauth2.AccessTypeOffline,
 		oauth2.SetAuthURLParam("prompt", "consent"),
@@ -108,8 +108,8 @@ func (s *serviceImpl) YandexAuthURL(state string) string {
 	return cfg.AuthCodeURL(state)
 }
 
-func (s *serviceImpl) HandleGoogleCallback(ctx context.Context, code string) (TokenResponse, error) {
-	client, err := s.exchangeOAuthCode(ctx, s.googleOAuthConfig(), code)
+func (s *serviceImpl) HandleGoogleCallback(ctx context.Context, code string, desktop bool) (TokenResponse, error) {
+	client, err := s.exchangeOAuthCode(ctx, s.googleOAuthConfig(desktop), code)
 	if err != nil {
 		return TokenResponse{}, err
 	}
@@ -321,8 +321,21 @@ func (s *serviceImpl) parseRefreshToken(tokenStr string) (string, error) {
 	return claims.Subject, nil
 }
 
-func (s *serviceImpl) googleOAuthConfig() *oauth2.Config {
+func (s *serviceImpl) googleOAuthConfig(desktop bool) *oauth2.Config {
 	oauthCfg := s.cfg.OAuthConfig()
+	if desktop && strings.TrimSpace(oauthCfg.GoogleDesktopID) != "" && strings.TrimSpace(oauthCfg.GoogleDesktopSecret) != "" {
+		redirect := strings.TrimSpace(oauthCfg.GoogleDesktopRedirect)
+		if redirect == "" {
+			redirect = strings.TrimRight(oauthCfg.RedirectBase, "/") + "/api/auth/google/callback"
+		}
+		return &oauth2.Config{
+			ClientID:     oauthCfg.GoogleDesktopID,
+			ClientSecret: oauthCfg.GoogleDesktopSecret,
+			RedirectURL:  redirect,
+			Scopes:       []string{"email", "profile"},
+			Endpoint:     google.Endpoint,
+		}
+	}
 	return &oauth2.Config{
 		ClientID:     oauthCfg.GoogleClientID,
 		ClientSecret: oauthCfg.GoogleClientSecret,

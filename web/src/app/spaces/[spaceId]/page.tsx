@@ -52,6 +52,7 @@ export default function SpacePage() {
   const [voiceSpeakingByUserId, setVoiceSpeakingByUserId] = useState<
     Record<string, boolean>
   >({});
+  const [voiceFatalError, setVoiceFatalError] = useState<string | null>(null);
   const [screenShareEnabled, setScreenShareEnabled] = useState(false);
   const [localScreenStream, setLocalScreenStream] = useState<MediaStream | null>(
     null,
@@ -177,6 +178,7 @@ export default function SpacePage() {
     async (channelId: string) => {
       if (!channelId) return;
       if (channelId === activeVoiceChannelId) return;
+      setVoiceFatalError(null);
       setScreenShareEnabled(false);
       setLocalScreenStream(null);
       setScreenStreamsByFeedId({});
@@ -222,6 +224,7 @@ export default function SpacePage() {
     }
 
     if (success) {
+      setVoiceFatalError(null);
       setActiveVoiceChannelId(null);
       setScreenShareEnabled(false);
       setLocalScreenStream(null);
@@ -459,6 +462,20 @@ export default function SpacePage() {
 
   return (
     <div className="min-h-screen bg-(--bg) text-(--text)">
+      {voiceFatalError ? (
+        <div className="mx-auto mt-4 w-full max-w-6xl px-6">
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+            <span>{voiceFatalError}</span>
+            <button
+              type="button"
+              className="rounded-full border border-amber-500/30 px-3 py-1 text-xs text-amber-200 transition hover:border-amber-400"
+              onClick={() => setVoiceFatalError(null)}
+            >
+              Закрыть
+            </button>
+          </div>
+        </div>
+      ) : null}
       <div className="md:hidden">
         {state.status === "ready" ? (
           <main className="px-5 py-6">
@@ -665,8 +682,10 @@ export default function SpacePage() {
           onScreenShareStateChange={handleScreenShareStateChange}
           watchFeedId={selectedScreenFeedId === "local" ? null : selectedScreenFeedId}
           volumeByUserId={volumeByUserId}
-          onFatalError={() => {
+          onFatalError={(message) => {
             // If we fail to bootstrap/reconnect, clean stale "in channel" presence.
+            console.error("Voice fatal error", message);
+            setVoiceFatalError(message);
             leaveVoiceChannel()
               .catch(() => {})
               .finally(() => {

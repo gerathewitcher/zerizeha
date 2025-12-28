@@ -2,12 +2,19 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { loginWithGithub, loginWithGoogle, loginWithYandex } from "@/lib/api/auth";
+import {
+  exchangeGoogleDesktopCode,
+  isDesktopClient,
+  loginWithGithub,
+  loginWithGoogle,
+  loginWithYandex,
+} from "@/lib/api/auth";
 import { health } from "@/lib/api/generated/zerizeha-components";
 import ErrorState from "@/components/ui/ErrorState";
 
 export default function LoginPageClient() {
   const [status, setStatus] = useState<"ok" | "error" | "loading">("loading");
+  const [desktopError, setDesktopError] = useState<string | null>(null);
 
   const checkHealth = useCallback(() => {
     const controller = new AbortController();
@@ -24,6 +31,49 @@ export default function LoginPageClient() {
   }, []);
 
   useEffect(() => checkHealth(), [checkHealth]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let active = true;
+
+    const initListener = async () => {
+      try {
+        const { listen } = await import("@tauri-apps/api/event");
+        if (!active) return;
+        unlisten = await listen("oauth-google-callback", async (event) => {
+          const payload = event.payload as {
+            code?: string;
+            state?: string;
+          };
+          if (!payload?.code) {
+            setDesktopError("Не удалось получить код авторизации.");
+            return;
+          }
+
+          try {
+            await exchangeGoogleDesktopCode(payload.code, payload.state);
+            window.location.assign("/spaces");
+          } catch (err) {
+            console.error("Desktop OAuth exchange failed", err);
+            setDesktopError(
+              err instanceof Error ? err.message : "OAuth обмен не удался",
+            );
+          }
+        });
+      } catch (err) {
+        if (isDesktopClient()) {
+          console.error("Failed to init Tauri event listener", err);
+          setDesktopError("Не удалось подключиться к OAuth каналу.");
+        }
+      }
+    };
+
+    initListener();
+    return () => {
+      active = false;
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   if (status === "error") {
     return (
@@ -122,6 +172,11 @@ export default function LoginPageClient() {
                   </span>
                   <span className="text-xs text-(--subtle)">OAuth</span>
                 </button>
+                {desktopError && (
+                  <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                    {desktopError}
+                  </div>
+                )}
 
                 <button
                   type="button"
