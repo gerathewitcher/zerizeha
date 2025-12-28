@@ -29,8 +29,7 @@
     "resources": [
       "../.next/standalone/**",
       "../.next/static/**",
-      "bin/node.exe",
-      "bin/node"
+      "bin/node.exe"
     ]
   }
 }
