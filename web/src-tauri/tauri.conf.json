@@ -5,7 +5,7 @@
   "identifier": "com.zerizeha.app",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build && npx next export",
+    "beforeBuildCommand": "npm run build",
     "frontendDist": "../out",
     "devUrl": "http://localhost:3000"
   },
