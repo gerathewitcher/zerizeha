@@ -30,7 +30,7 @@
       "icons/icon.png"
     ],
     "resources": [
-      "standalone/**",
+      "resources/**",
       "bin/node.exe"
     ]
   }

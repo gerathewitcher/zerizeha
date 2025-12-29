@@ -5,7 +5,7 @@ import path from "node:path";
 const root = path.resolve(process.cwd());
 const nextDir = path.join(root, ".next");
 const standaloneDir = path.join(nextDir, "standalone");
-const tauriStandaloneDir = path.join(root, "src-tauri", "standalone");
+const tauriStandaloneDir = path.join(root, "src-tauri", "resources", "standalone");
 
 if (!existsSync(standaloneDir)) {
   console.error("Standalone build not found. Run `npm run build` first.");

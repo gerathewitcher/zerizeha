@@ -69,11 +69,20 @@ fn start_oauth_listener(app: tauri::AppHandle) {
 }
 
 fn resolve_resource_path(app: &tauri::AppHandle, relative: &str) -> Option<PathBuf> {
-    app.path()
-        .resource_dir()
-        .ok()
-        .map(|dir| dir.join(relative))
-        .filter(|path| path.exists())
+    let resource_dir = app.path().resource_dir().ok()?;
+    let direct = resource_dir.join(relative);
+    if direct.exists() {
+        return Some(direct);
+    }
+    let nested = resource_dir.join("src-tauri").join(relative);
+    if nested.exists() {
+        return Some(nested);
+    }
+    let web_nested = resource_dir.join("web").join("src-tauri").join(relative);
+    if web_nested.exists() {
+        return Some(web_nested);
+    }
+    None
 }
 
 fn log_line(app: &tauri::AppHandle, message: &str) {
@@ -99,7 +108,10 @@ fn start_app_server(app: &tauri::AppHandle) -> Option<Child> {
         .or_else(|| resolve_resource_path(app, ".next/standalone/server.js"));
 
     if server_path.is_none() {
-        log_line(app, "server.js not found in resources");
+        log_line(
+            app,
+            "server.js not found in resources (checked standalone/server.js)",
+        );
         return None;
     }
     let server_path = server_path?;
