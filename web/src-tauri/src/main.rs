@@ -95,8 +95,8 @@ fn start_app_server(app: &tauri::AppHandle) -> Option<Child> {
     let node_path = resolve_resource_path(app, "bin/node.exe")
         .or_else(|| resolve_resource_path(app, "bin/node"))
         .unwrap_or_else(|| PathBuf::from("node"));
-    let server_path = resolve_resource_path(app, ".next/standalone/server.js")
-        .or_else(|| resolve_resource_path(app, "standalone/server.js"));
+    let server_path = resolve_resource_path(app, "standalone/server.js")
+        .or_else(|| resolve_resource_path(app, ".next/standalone/server.js"));
 
     if server_path.is_none() {
         log_line(app, "server.js not found in resources");
@@ -175,6 +175,9 @@ fn main() {
                 let handle = app.handle().clone();
                 if let Ok(dir) = handle.path().app_data_dir() {
                     log_line(&handle, &format!("app data dir: {dir:?}"));
+                }
+                if let Ok(dir) = handle.path().resource_dir() {
+                    log_line(&handle, &format!("resource dir: {dir:?}"));
                 }
                 let _child = start_app_server(&handle);
                 thread::spawn(move || {

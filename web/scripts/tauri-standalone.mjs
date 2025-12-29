@@ -1,10 +1,11 @@
-import { cp, mkdir } from "node:fs/promises";
+import { cp, mkdir, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
 const root = path.resolve(process.cwd());
 const nextDir = path.join(root, ".next");
 const standaloneDir = path.join(nextDir, "standalone");
+const tauriStandaloneDir = path.join(root, "src-tauri", "standalone");
 
 if (!existsSync(standaloneDir)) {
   console.error("Standalone build not found. Run `npm run build` first.");
@@ -22,5 +23,10 @@ await cp(staticSrc, staticDest, { recursive: true });
 if (existsSync(publicSrc)) {
   await cp(publicSrc, publicDest, { recursive: true });
 }
+
+if (existsSync(tauriStandaloneDir)) {
+  await rm(tauriStandaloneDir, { recursive: true, force: true });
+}
+await cp(standaloneDir, tauriStandaloneDir, { recursive: true });
 
 console.log("Prepared standalone output for Tauri.");

@@ -30,8 +30,7 @@
       "icons/icon.png"
     ],
     "resources": [
-      "../.next/standalone/**",
-      "../.next/static/**",
+      "standalone/**",
       "bin/node.exe"
     ]
   }
