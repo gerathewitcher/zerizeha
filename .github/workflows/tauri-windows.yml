@@ -2,12 +2,6 @@ name: Build Windows Desktop
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - "web/**"
-      - ".github/workflows/tauri-windows.yml"
 
 jobs:
   build-windows:
@@ -34,9 +28,6 @@ jobs:
         with:
           workspaces: web/src-tauri -> target
 
-      - name: Setup sccache
-        uses: mozilla/sccache-action@v0.0.4
-
       - name: Install dependencies
         run: npm install
 
@@ -52,9 +43,6 @@ jobs:
 
       - name: Build Tauri app
         run: npm run tauri:build
-        env:
-          RUSTC_WRAPPER: sccache
-          SCCACHE_GHA_ENABLED: "true"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
