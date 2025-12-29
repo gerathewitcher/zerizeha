@@ -1,11 +1,15 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::Serialize;
-use std::thread;
-use tauri::Emitter;
-use tauri::Manager;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
+use tauri::Emitter;
+use tauri::Manager;
 
 const OAUTH_LISTEN_ADDR: &str = "127.0.0.1:5555";
 const OAUTH_CALLBACK_PATH: &str = "/callback";
@@ -72,6 +76,21 @@ fn resolve_resource_path(app: &tauri::AppHandle, relative: &str) -> Option<PathB
         .filter(|path| path.exists())
 }
 
+fn log_line(app: &tauri::AppHandle, message: &str) {
+    let path = match app.path().app_data_dir() {
+        Ok(dir) => dir.join("desktop.log"),
+        Err(_) => return,
+    };
+
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{message}");
+    }
+}
+
 fn start_app_server(app: &tauri::AppHandle) -> Option<Child> {
     let node_path = resolve_resource_path(app, "bin/node.exe")
         .or_else(|| resolve_resource_path(app, "bin/node"))
@@ -87,11 +106,26 @@ fn start_app_server(app: &tauri::AppHandle) -> Option<Child> {
         .env("HOSTNAME", APP_SERVER_HOST)
         .env("PORT", APP_SERVER_PORT)
         .env("NODE_ENV", "production")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stdin(Stdio::null());
 
-    cmd.spawn().ok()
+    let log_path = match app.path().app_data_dir() {
+        Ok(dir) => dir.join("desktop.log"),
+        Err(_) => PathBuf::from("desktop.log"),
+    };
+    if let Ok(log_file) = OpenOptions::new().create(true).append(true).open(log_path) {
+        let _ = cmd.stdout(Stdio::from(log_file.try_clone().ok()?));
+        let _ = cmd.stderr(Stdio::from(log_file));
+    } else {
+        cmd.stdout(Stdio::null()).stderr(Stdio::null());
+    }
+
+    match cmd.spawn() {
+        Ok(child) => Some(child),
+        Err(err) => {
+            log_line(app, &format!("failed to spawn app server: {err}"));
+            None
+        }
+    }
 }
 
 fn navigate_to_app(app: &tauri::AppHandle) {
@@ -100,6 +134,22 @@ fn navigate_to_app(app: &tauri::AppHandle) {
         let script = format!("window.location.replace('{url}');");
         let _ = window.eval(&script);
     }
+}
+
+fn wait_for_server() -> bool {
+    let addr = format!("{}:{}", APP_SERVER_HOST, APP_SERVER_PORT);
+    let socket_addr = match addr.parse() {
+        Ok(addr) => addr,
+        Err(_) => return false,
+    };
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while Instant::now() < deadline {
+        if TcpStream::connect_timeout(&socket_addr, Duration::from_millis(200)).is_ok() {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+    false
 }
 
 fn main() {
@@ -111,8 +161,13 @@ fn main() {
                 let handle = app.handle().clone();
                 let _child = start_app_server(&handle);
                 thread::spawn(move || {
-                    thread::sleep(std::time::Duration::from_millis(600));
-                    navigate_to_app(&handle);
+                    if wait_for_server() {
+                        navigate_to_app(&handle);
+                    } else if let Some(window) = handle.get_webview_window("main") {
+                        let message = "Не удалось запустить локальный сервер. Проверьте desktop.log.";
+                        let script = format!("document.body.innerText = {message:?};");
+                        let _ = window.eval(&script);
+                    }
                 });
             }
             Ok(())
