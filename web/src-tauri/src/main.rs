@@ -96,9 +96,23 @@ fn start_app_server(app: &tauri::AppHandle) -> Option<Child> {
         .or_else(|| resolve_resource_path(app, "bin/node"))
         .unwrap_or_else(|| PathBuf::from("node"));
     let server_path = resolve_resource_path(app, ".next/standalone/server.js")
-        .or_else(|| resolve_resource_path(app, "standalone/server.js"))?;
+        .or_else(|| resolve_resource_path(app, "standalone/server.js"));
+
+    if server_path.is_none() {
+        log_line(app, "server.js not found in resources");
+        return None;
+    }
+    let server_path = server_path?;
 
     let server_dir = server_path.parent()?.to_path_buf();
+
+    log_line(
+        app,
+        &format!(
+            "starting app server: node={:?} server={:?}",
+            node_path, server_path
+        ),
+    );
 
     let mut cmd = Command::new(node_path);
     cmd.arg(server_path)
@@ -159,6 +173,9 @@ fn main() {
             start_oauth_listener(app.handle().clone());
             if !cfg!(debug_assertions) {
                 let handle = app.handle().clone();
+                if let Ok(dir) = handle.path().app_data_dir() {
+                    log_line(&handle, &format!("app data dir: {dir:?}"));
+                }
                 let _child = start_app_server(&handle);
                 thread::spawn(move || {
                     if wait_for_server() {
