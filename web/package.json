@@ -1,6 +1,7 @@
 {
   "name": "web",
   "version": "0.1.0",
+  "main": "electron/main.js",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,28 +9,30 @@
     "start": "next start",
     "lint": "eslint",
     "generate:api": "openapi-codegen gen api",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
-    "tauri:prep": "node scripts/tauri-standalone.mjs"
+    "electron:dev": "concurrently -k \"next dev\" \"wait-on http://localhost:3000 && electron electron/main.js\"",
+    "electron:run": "electron electron/main.js",
+    "electron:build": "npm run build && electron-builder --config electron-builder.json"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.2.0",
-    "@tauri-apps/plugin-shell": "^2.2.0",
+    "electron": "^31.3.0",
     "next": "16.1.0",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "uiohook-napi": "^1.5.4"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.2.0",
     "@openapi-codegen/cli": "3.1.0",
     "@openapi-codegen/typescript": "11.1.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^9.1.2",
+    "electron-builder": "^24.13.3",
     "eslint": "^9",
     "eslint-config-next": "16.1.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wait-on": "^7.2.0"
   }
 }

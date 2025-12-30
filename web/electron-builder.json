@@ -1,0 +1,27 @@
+{
+  "appId": "com.zerizeha.app",
+  "productName": "Zerizeha",
+  "directories": {
+    "buildResources": "electron/assets",
+    "output": "dist-electron"
+  },
+  "files": [
+    ".next/**",
+    "public/**",
+    "electron/**",
+    "package.json"
+  ],
+  "asar": true,
+  "linux": {
+    "target": [
+      "AppImage"
+    ],
+    "icon": "electron/assets/app.png"
+  },
+  "win": {
+    "target": [
+      "nsis"
+    ],
+    "icon": "electron/assets/app.ico"
+  }
+}
