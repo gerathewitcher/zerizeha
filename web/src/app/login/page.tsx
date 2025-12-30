@@ -4,9 +4,8 @@ import LoginPageClient from "@/app/login/LoginPageClient";
 
 export default async function LoginPage() {
   const cookieStore = await cookies();
-  const hasSession = !!(
-    cookieStore.get("access_token")
-  );
+  const accessToken = cookieStore.get("access_token")?.value ?? "";
+  const hasSession = accessToken.trim().length > 0;
 
   if (hasSession) {
     redirect("/spaces");

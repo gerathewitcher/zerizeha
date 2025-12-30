@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import CreateChannelModal from "@/components/spaces/CreateChannelModal";
+import Tooltip from "@/components/ui/Tooltip";
 import { useMe } from "@/lib/me";
 import type { VoiceMember } from "@/lib/api/generated/zerizeha-schemas";
 
@@ -19,7 +20,6 @@ type SpaceSidebarProps = {
   voiceMembersByChannelId?: Record<string, VoiceMember[]>;
   activeVoiceChannelId?: string | null;
   speakingByUserId?: Record<string, boolean>;
-  connectionQuality?: "good" | "ok" | "bad" | "unknown";
   mobileOpen?: boolean;
   onCloseMobile?: () => void;
   onSelectVoiceChannel?: (channelId: string) => void;
@@ -28,6 +28,7 @@ type SpaceSidebarProps = {
   chatOpen?: boolean;
   volumeByUserId?: Record<string, number>;
   onVolumeChange?: (userId: string, volume: number) => void;
+  mutedUserIds?: Record<string, boolean>;
   onChannelsChanged?: () => void;
 };
 
@@ -39,7 +40,6 @@ export default function SpaceSidebar({
   voiceMembersByChannelId = {},
   activeVoiceChannelId,
   speakingByUserId,
-  connectionQuality = "unknown",
   mobileOpen = false,
   onCloseMobile,
   onSelectVoiceChannel,
@@ -48,6 +48,7 @@ export default function SpaceSidebar({
   chatOpen = true,
   volumeByUserId = {},
   onVolumeChange,
+  mutedUserIds = {},
   onChannelsChanged,
 }: SpaceSidebarProps) {
   const [createOpen, setCreateOpen] = useState(false);
@@ -55,9 +56,7 @@ export default function SpaceSidebar({
   const [menuUserId, setMenuUserId] = useState<string | null>(null);
   const { state } = useMe();
   const me = state.status === "ready" ? state.me : null;
-  const username = me?.username || "user";
-  const initial = username.trim().slice(0, 1).toUpperCase() || "U";
-  const isAdmin = !!me?.is_admin;
+
 
   useEffect(() => {
     if (!menuUserId) return;
@@ -164,28 +163,31 @@ export default function SpaceSidebar({
         <div>
           <div className="flex items-center justify-between text-xs uppercase tracking-[0.2em] text-(--subtle)">
             Голосовые
-            <button
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-(--border) text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
-              onClick={() => {
-                setCreateType("voice");
-                setCreateOpen(true);
-              }}
-            >
-              <svg
-                className="h-4 w-4"
-                viewBox="0 0 16 16"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-                aria-hidden="true"
+            <Tooltip label="Создать канал">
+              <button
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-(--border) text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
+                onClick={() => {
+                  setCreateType("voice");
+                  setCreateOpen(true);
+                }}
+                aria-label="Создать канал"
               >
-                <path
-                  d="M8 3.5V12.5M3.5 8H12.5"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
+                <svg
+                  className="h-4 w-4"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M8 3.5V12.5M3.5 8H12.5"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+            </Tooltip>
           </div>
           <div className="mt-3 flex flex-col gap-1">
             {voiceChannels.map((channel) => (
@@ -213,72 +215,38 @@ export default function SpaceSidebar({
                     ) : null}
                     {activeVoiceChannelId === channel.id && (
                       <>
-                        <button
-                          className={`flex h-6 w-6 items-center justify-center rounded-md border text-xs transition ${
-                            chatOpen
-                              ? "border-(--accent) text-(--accent)"
-                              : "border-(--border) text-(--muted) hover:border-(--accent) hover:text-(--accent)"
-                          }`}
-                          aria-label="Открыть чат"
-                          title="Открыть чат"
-                          onClick={onToggleChat}
-                        >
-                          <svg
-                            className="h-3.5 w-3.5"
-                            viewBox="0 0 16 16"
-                            fill="none"
-                            xmlns="http://www.w3.org/2000/svg"
-                            aria-hidden="true"
+                        <Tooltip label="Открыть чат">
+                          <button
+                            className={`flex h-6 w-6 items-center justify-center rounded-md border text-xs transition ${
+                              chatOpen
+                                ? "border-(--accent) text-(--accent)"
+                                : "border-(--border) text-(--muted) hover:border-(--accent) hover:text-(--accent)"
+                            }`}
+                            aria-label="Открыть чат"
+                            onClick={onToggleChat}
                           >
-                            <path
-                              d="M3 4.5C3 3.7 3.7 3 4.5 3H11.5C12.3 3 13 3.7 13 4.5V9.5C13 10.3 12.3 11 11.5 11H7L4 13V4.5Z"
-                              stroke="currentColor"
-                              strokeWidth="1.2"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        </button>
-                        <button
-                          className="flex h-6 w-6 items-center justify-center rounded-md border border-(--border) text-xs text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
-                          aria-label="Покинуть канал"
-                          title="Покинуть канал"
-                          onClick={onLeaveVoiceChannel}
-                        >
-                          <svg
-                            className="h-3.5 w-3.5"
-                            viewBox="0 0 16 16"
-                            fill="none"
-                            xmlns="http://www.w3.org/2000/svg"
-                            aria-hidden="true"
-                          >
-                            <path
-                              d="M6 3H10C11.1 3 12 3.9 12 5V11C12 12.1 11.1 13 10 13H6"
-                              stroke="currentColor"
-                              strokeWidth="1.4"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                            <path
-                              d="M4.5 8H11"
-                              stroke="currentColor"
-                              strokeWidth="1.6"
-                              strokeLinecap="round"
-                            />
-                            <path
-                              d="M8.5 6L11 8L8.5 10"
-                              stroke="currentColor"
-                              strokeWidth="1.6"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        </button>
+                            <svg
+                              className="h-3.5 w-3.5"
+                              viewBox="0 0 16 16"
+                              fill="none"
+                              xmlns="http://www.w3.org/2000/svg"
+                              aria-hidden="true"
+                            >
+                              <path
+                                d="M3 4.5C3 3.7 3.7 3 4.5 3H11.5C12.3 3 13 3.7 13 4.5V9.5C13 10.3 12.3 11 11.5 11H7L4 13V4.5Z"
+                                stroke="currentColor"
+                                strokeWidth="1.2"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          </button>
+                        </Tooltip>
                       </>
                     )}
                   </div>
                 </div>
                 {voiceMembersByChannelId[channel.id]?.length ? (
-                  <div className="mt-1 space-y-1 pl-7 text-xs text-(--subtle)">
+                  <div className="mt-1 space-y-1 pl-7 text-[14px] text-(--subtle)">
                     {voiceMembersByChannelId[channel.id].map((member) => (
                       <div
                         key={member.id}
@@ -290,50 +258,133 @@ export default function SpaceSidebar({
                         }}
                       >
                         <span
-                          className={`h-1.5 w-1.5 rounded-full ${
-                            speakingByUserId?.[member.id]
+                          className={`h-[7px] w-[7px] rounded-full ${
+                            speakingByUserId?.[member.id] && !mutedUserIds[member.id]
                               ? "bg-(--accent) animate-[pulse_0.8s_ease-in-out_infinite]"
                               : "bg-(--border)"
                           }`}
                         />
                         <span className="truncate">{member.username}</span>
                         {member.is_admin ? (
-                          <span className="text-(--accent)" title="Админ">
-                            ★
-                          </span>
+                          <Tooltip label="Админ">
+                            <span className="text-(--accent)">★</span>
+                          </Tooltip>
+                        ) : null}
+                        {member.muted || mutedUserIds[member.id] ? (
+                          <Tooltip
+                            label={
+                              mutedUserIds[member.id]
+                                ? "Пользователь заглушен"
+                                : "Микрофон выключен"
+                            }
+                          >
+                            <span className="text-(--danger)">
+                              <svg
+                                className="h-3.5 w-3.5"
+                                viewBox="0 0 16 16"
+                                fill="none"
+                                xmlns="http://www.w3.org/2000/svg"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  d="M6 6.5V4.5C6 3.7 6.7 3 7.5 3C8.3 3 9 3.7 9 4.5V6.5"
+                                  stroke="currentColor"
+                                  strokeWidth="1.2"
+                                  strokeLinecap="round"
+                                />
+                                <path
+                                  d="M5 7.5C5 8.9 6.1 10 7.5 10C8.9 10 10 8.9 10 7.5V6.8"
+                                  stroke="currentColor"
+                                  strokeWidth="1.2"
+                                  strokeLinecap="round"
+                                />
+                                <path
+                                  d="M4 13H11"
+                                  stroke="currentColor"
+                                  strokeWidth="1.2"
+                                  strokeLinecap="round"
+                                />
+                                <path
+                                  d="M7.5 10V13"
+                                  stroke="currentColor"
+                                  strokeWidth="1.2"
+                                  strokeLinecap="round"
+                                />
+                                <path
+                                  d="M3 3L13 13"
+                                  stroke="currentColor"
+                                  strokeWidth="1.2"
+                                  strokeLinecap="round"
+                                />
+                              </svg>
+                            </span>
+                          </Tooltip>
+                        ) : null}
+                        {member.deafened ? (
+                          <Tooltip label="Звук выключен">
+                            <span className="text-(--danger)">
+                              <svg
+                                className="h-3.5 w-3.5"
+                                viewBox="0 0 16 16"
+                                fill="none"
+                                xmlns="http://www.w3.org/2000/svg"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  d="M6 4.5L4.2 6H3V10H4.2L6 11.5V4.5Z"
+                                  stroke="currentColor"
+                                  strokeWidth="1.2"
+                                  strokeLinejoin="round"
+                                />
+                                <path
+                                  d="M11 5.5C12 6.5 12 9.5 11 10.5"
+                                  stroke="currentColor"
+                                  strokeWidth="1.2"
+                                  strokeLinecap="round"
+                                />
+                                <path
+                                  d="M3 3L13 13"
+                                  stroke="currentColor"
+                                  strokeWidth="1.2"
+                                  strokeLinecap="round"
+                                />
+                              </svg>
+                            </span>
+                          </Tooltip>
                         ) : null}
                         {member.id !== me?.id ? (
-                          <button
-                            type="button"
-                            className="ml-auto flex h-5 w-5 items-center justify-center rounded border border-(--border) text-[10px] text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
-                            title="Громкость"
-                            aria-label="Громкость"
-                            onClick={(ev) => {
-                              ev.stopPropagation();
-                              setMenuUserId(member.id);
-                            }}
-                          >
-                            <svg
-                              className="h-3 w-3"
-                              viewBox="0 0 16 16"
-                              fill="none"
-                              xmlns="http://www.w3.org/2000/svg"
-                              aria-hidden="true"
+                          <Tooltip label="Громкость">
+                            <button
+                              type="button"
+                              className="ml-auto flex h-6 w-6 items-center justify-center rounded border border-(--border) text-[11px] text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
+                              aria-label="Громкость"
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                setMenuUserId(member.id);
+                              }}
                             >
-                              <path
-                                d="M3 6.5H5.5L8.5 4V12L5.5 9.5H3V6.5Z"
-                                stroke="currentColor"
-                                strokeWidth="1.2"
-                                strokeLinejoin="round"
-                              />
-                              <path
-                                d="M11 6.2C11.7 7 11.7 9 11 9.8"
-                                stroke="currentColor"
-                                strokeWidth="1.2"
-                                strokeLinecap="round"
-                              />
-                            </svg>
-                          </button>
+                              <svg
+                                className="h-3.5 w-3.5"
+                                viewBox="0 0 16 16"
+                                fill="none"
+                                xmlns="http://www.w3.org/2000/svg"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  d="M3 6.5H5.5L8.5 4V12L5.5 9.5H3V6.5Z"
+                                  stroke="currentColor"
+                                  strokeWidth="1.2"
+                                  strokeLinejoin="round"
+                                />
+                                <path
+                                  d="M11 6.2C11.7 7 11.7 9 11 9.8"
+                                  stroke="currentColor"
+                                  strokeWidth="1.2"
+                                  strokeLinecap="round"
+                                />
+                              </svg>
+                            </button>
+                          </Tooltip>
                         ) : null}
                         {menuUserId === member.id ? (
                           <div
@@ -372,87 +423,6 @@ export default function SpaceSidebar({
         </div>
       </div>
 
-      <div className="border-t border-(--border) px-4 py-4">
-        <div className="flex items-center gap-3">
-          {state.status === "loading" ? (
-            <div className="flex w-full items-center gap-3">
-              <div className="h-10 w-10 animate-pulse rounded-xl bg-(--bg-2)" />
-              <div className="min-w-0 flex-1 space-y-2">
-                <div className="h-4 w-32 animate-pulse rounded bg-(--bg-2)" />
-                <div className="h-3 w-40 animate-pulse rounded bg-(--bg-2)" />
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-(--bg-2) text-sm font-semibold">
-                {initial}
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="truncate text-sm font-medium">{username}</p>
-                  {isAdmin ? (
-                    <span
-                      className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-(--border) bg-(--bg-2) text-(--accent)"
-                      title="Админ"
-                      aria-label="Админ"
-                    >
-                      <svg
-                        className="h-3.5 w-3.5"
-                        viewBox="0 0 16 16"
-                        fill="none"
-                        xmlns="http://www.w3.org/2000/svg"
-                        aria-hidden="true"
-                      >
-                        <path
-                          d="M3 6.2L5.2 8.1L8 4.2L10.8 8.1L13 6.2V11.5C13 12.3 12.3 13 11.5 13H4.5C3.7 13 3 12.3 3 11.5V6.2Z"
-                          stroke="currentColor"
-                          strokeWidth="1.2"
-                          strokeLinejoin="round"
-                        />
-                        <path
-                          d="M5 12.2H11"
-                          stroke="currentColor"
-                          strokeWidth="1.2"
-                          strokeLinecap="round"
-                        />
-                      </svg>
-                    </span>
-                  ) : null}
-                </div>
-                <p className="truncate text-xs text-(--subtle)">
-                  {isAdmin ? "admin" : "user"}
-                </p>
-                {activeVoiceChannelId ? (
-                  <div className="flex items-center gap-2 text-[11px] text-(--muted)">
-                    <span
-                      className={`h-2 w-2 rounded-full ${
-                        connectionQuality === "good"
-                          ? "bg-green-400"
-                          : connectionQuality === "ok"
-                            ? "bg-amber-400"
-                            : connectionQuality === "bad"
-                              ? "bg-red-400"
-                              : "bg-(--border)"
-                      }`}
-                      aria-hidden="true"
-                    />
-                    <span>
-                      Связь:{" "}
-                      {connectionQuality === "good"
-                        ? "хорошая"
-                        : connectionQuality === "ok"
-                          ? "нормальная"
-                          : connectionQuality === "bad"
-                            ? "плохая"
-                            : "—"}
-                    </span>
-                  </div>
-                ) : null}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
       <CreateChannelModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}

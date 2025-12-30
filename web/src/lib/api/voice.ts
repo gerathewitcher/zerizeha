@@ -7,6 +7,7 @@ import {
   voiceWebRTCBootstrap,
   voiceHeartbeat,
 } from "@/lib/api/generated/zerizeha-components";
+import { zerizehaFetch } from "@/lib/api/generated/zerizeha-fetcher";
 import type { VoiceMember } from "@/lib/api/generated/zerizeha-schemas";
 import type { WebRTCBootstrapResponse } from "@/lib/api/generated/zerizeha-schemas";
 
@@ -39,4 +40,16 @@ export async function bootstrapVoiceWebRTC(
   signal?: AbortSignal,
 ): Promise<WebRTCBootstrapResponse> {
   return voiceWebRTCBootstrap({ pathParams: { id: channelId } }, signal);
+}
+
+export async function updateVoiceState(
+  state: { muted: boolean; deafened: boolean },
+  signal?: AbortSignal,
+): Promise<void> {
+  await zerizehaFetch({
+    url: "/api/voice/state",
+    method: "POST",
+    body: state,
+    signal,
+  });
 }

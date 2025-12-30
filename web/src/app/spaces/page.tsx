@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import SpaceRail from "@/components/spaces/SpaceRail";
+import { useVoiceSession } from "@/components/spaces/VoiceSessionProvider";
 import { fetchSpaces } from "@/lib/api/spaces";
+import { logout } from "@/lib/api/auth";
 import ErrorState from "@/components/ui/ErrorState";
 import { getHttpStatus } from "@/lib/api/errors";
 import { useMe } from "@/lib/me";
@@ -18,6 +20,8 @@ type ViewState =
 export default function SpacesPage() {
   const [state, setState] = useState<ViewState>({ status: "loading" });
   const meState = useMe();
+  const voiceSession = useVoiceSession();
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const loadSpaces = useCallback(() => {
     const controller = new AbortController();
@@ -60,6 +64,21 @@ export default function SpacesPage() {
       isAdmin: !!meState.state.me.is_admin,
     };
   }, [meState.state]);
+
+  const handleLogout = useCallback(async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      if (voiceSession.activeVoiceChannelId) {
+        await voiceSession.leaveVoiceChannel();
+      }
+      await logout();
+    } catch (err) {
+      console.error("Logout failed", err);
+    } finally {
+      window.location.assign("/login");
+    }
+  }, [loggingOut, voiceSession]);
 
   const profileSkeleton = (
     <section className="mx-auto w-full max-w-md rounded-2xl border border-(--border) bg-(--panel) p-6 text-left shadow-(--shadow-2)">
@@ -176,7 +195,12 @@ export default function SpacesPage() {
       </div>
 
       <div className="hidden h-screen overflow-hidden md:flex">
-        <SpaceRail spaces={railSpaces} defaultExpanded />
+        <SpaceRail
+          spaces={railSpaces}
+          onLogout={handleLogout}
+          loggingOut={loggingOut}
+          activeVoiceSpaceId={voiceSession.activeVoiceSpaceId}
+        />
         <main className="flex min-w-0 flex-1 items-center justify-center px-6">
           {state.status === "loading" ? (
             <p className="text-sm text-(--muted)">Загрузка…</p>

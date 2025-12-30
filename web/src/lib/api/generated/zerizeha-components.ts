@@ -47,6 +47,41 @@ export const webRTCWebSocket = (
     signal,
   });
 
+export type VoicePresenceWebSocketPathParams = {
+  spaceId: string;
+};
+
+export type VoicePresenceWebSocketError = Fetcher.ErrorWrapper<
+  | {
+      status: 400;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type VoicePresenceWebSocketVariables = {
+  pathParams: VoicePresenceWebSocketPathParams;
+} & ZerizehaFetcherExtraProps;
+
+/**
+ * WebSocket that pushes voice members updates for a space (replaces members polling + heartbeat)
+ */
+export const voicePresenceWebSocket = (
+  variables: VoicePresenceWebSocketVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<
+    undefined,
+    VoicePresenceWebSocketError,
+    undefined,
+    {},
+    {},
+    VoicePresenceWebSocketPathParams
+  >({ url: "/api/ws/voice/{spaceId}", method: "get", ...variables, signal });
+
 export type HealthError = Fetcher.ErrorWrapper<undefined>;
 
 export type HealthVariables = ZerizehaFetcherExtraProps;
@@ -572,6 +607,38 @@ export const leaveVoice = (
     signal,
   });
 
+export type UpdateVoiceStateError = Fetcher.ErrorWrapper<
+  | {
+      status: 400;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type UpdateVoiceStateVariables = {
+  body: Schemas.VoiceStateUpdate;
+} & ZerizehaFetcherExtraProps;
+
+export const updateVoiceState = (
+  variables: UpdateVoiceStateVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<
+    undefined,
+    UpdateVoiceStateError,
+    Schemas.VoiceStateUpdate,
+    {},
+    {},
+    {}
+  >({ url: "/api/voice/state", method: "post", ...variables, signal });
+
 export type VoiceHeartbeatError = Fetcher.ErrorWrapper<
   | {
       status: 401;
@@ -1069,10 +1136,12 @@ export const deleteSpaceMember = (
 export const operationsByTag = {
   voice: {
     webRTCWebSocket,
+    voicePresenceWebSocket,
     joinVoiceChannel,
     listVoiceMembers,
     voiceWebRTCBootstrap,
     leaveVoice,
+    updateVoiceState,
     voiceHeartbeat,
   },
   auth: {

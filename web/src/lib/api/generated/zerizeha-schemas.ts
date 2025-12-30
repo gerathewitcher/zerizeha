@@ -158,7 +158,14 @@ export type VoiceMember = {
   id: string;
   username: string;
   is_admin: boolean;
+  muted: boolean;
+  deafened: boolean;
   avatar_url?: string | null;
+};
+
+export type VoiceStateUpdate = {
+  muted: boolean;
+  deafened: boolean;
 };
 
 export type WebRTCPublisher = {

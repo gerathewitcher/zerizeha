@@ -4,7 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import CreateSpaceModal from "@/components/spaces/CreateSpaceModal";
+import Modal from "@/components/ui/Modal";
+import Tooltip from "@/components/ui/Tooltip";
 import { useMe } from "@/lib/me";
+import { useVoiceSession } from "@/components/spaces/VoiceSessionProvider";
 
 type SpaceItem = {
   id: string;
@@ -13,30 +16,60 @@ type SpaceItem = {
 
 type SpaceRailProps = {
   spaces: SpaceItem[];
-  defaultExpanded?: boolean;
   isAdmin?: boolean;
   mobileOpen?: boolean;
   onCloseMobile?: () => void;
+  onLogout?: () => void;
+  loggingOut?: boolean;
+  activeVoiceSpaceId?: string | null;
 };
 
 export default function SpaceRail({
   spaces,
-  defaultExpanded = false,
   isAdmin,
   mobileOpen = false,
   onCloseMobile,
+  onLogout,
+  loggingOut = false,
+  activeVoiceSpaceId = null,
 }: SpaceRailProps) {
-  const [railExpanded, setRailExpanded] = useState(defaultExpanded);
   const [createOpen, setCreateOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const pathname = usePathname();
-  const expanded = railExpanded || mobileOpen;
   const meState = useMe();
+  const voiceSession = useVoiceSession();
   const resolvedIsAdmin =
     typeof isAdmin === "boolean"
       ? isAdmin
       : meState.state.status === "ready"
         ? !!meState.state.me.is_admin
         : false;
+  const profileName =
+    meState.state.status === "ready" ? meState.state.me.username || "User" : "User";
+  const profileInitial = profileName.trim().slice(0, 1).toUpperCase() || "U";
+  const hasVoice = !!voiceSession.activeVoiceChannelId;
+  const qualityLabel = !voiceSession.voiceReady
+    ? "Подключение"
+    : voiceSession.connectionQuality === "good"
+      ? "Хорошая связь"
+      : voiceSession.connectionQuality === "ok"
+        ? "Средняя связь"
+        : voiceSession.connectionQuality === "bad"
+          ? "Плохая связь"
+          : "Связь неизвестна";
+  const qualityClass = (() => {
+    if (!voiceSession.voiceReady) return "text-sky-400";
+    switch (voiceSession.connectionQuality) {
+      case "good":
+        return "text-emerald-400";
+      case "ok":
+        return "text-amber-400";
+      case "bad":
+        return "text-red-400";
+      default:
+        return "text-(--border)";
+    }
+  })();
 
   return (
     <>
@@ -53,24 +86,33 @@ export default function SpaceRail({
           mobileOpen
             ? "fixed inset-y-0 left-0 z-50 flex w-72 px-4"
             : "hidden"
-        } lg:static lg:z-auto lg:flex ${
-          expanded ? "lg:w-64 lg:px-4" : "lg:w-20 lg:items-center"
-        }`}
+        } lg:static lg:z-auto lg:flex lg:w-20 lg:items-center lg:px-2`}
       >
-      <div
-        className={`flex items-center gap-3 ${expanded ? "px-2" : "justify-center"}`}
-      >
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-(--panel) text-lg font-semibold">
-          Z
-        </div>
-        {expanded && (
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
-              Пространства
-            </p>
-            <p className="text-sm font-medium">Zerizeha</p>
-          </div>
-        )}
+      <div className="flex items-center gap-2 px-2">
+        <Link
+          href="/spaces"
+          aria-label="Домой"
+          className={`flex h-10 w-10 items-center justify-center rounded-xl border transition ${
+            pathname === "/spaces"
+              ? "border-(--accent) text-(--accent)"
+              : "border-(--border) text-(--muted) hover:border-(--accent) hover:text-(--accent)"
+          }`}
+        >
+          <svg
+            className="h-4 w-4"
+            viewBox="0 0 16 16"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path
+              d="M2.5 7.2L8 2.5L13.5 7.2V13.2C13.5 13.7 13.1 14.1 12.6 14.1H9.9V10.2H6.1V14.1H3.4C2.9 14.1 2.5 13.7 2.5 13.2V7.2Z"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </Link>
         {mobileOpen ? (
           <button
             type="button"
@@ -81,24 +123,7 @@ export default function SpaceRail({
           </button>
         ) : null}
       </div>
-      {resolvedIsAdmin ? (
-        <div className={`mt-4 ${expanded ? "px-2" : "flex justify-center"}`}>
-          <Link
-            href="/admin/users"
-            className={`flex items-center gap-2 rounded-2xl border border-(--border) text-xs uppercase tracking-[0.2em] text-(--muted) transition hover:border-(--accent) hover:text-(--accent) ${
-              expanded ? "px-4 py-2" : "h-10 w-10 justify-center"
-            }`}
-            title="Админ-панель"
-            aria-label="Админ-панель"
-          >
-            <span className="text-sm">⚙</span>
-            {expanded ? <span>Админ панель</span> : null}
-          </Link>
-        </div>
-      ) : null}
-      <div
-        className={`mt-6 flex flex-1 flex-col gap-3 ${expanded ? "" : "items-center"}`}
-      >
+      <div className="mt-9 flex flex-1 flex-col gap-3 overflow-y-auto pr-1 pt-2 pb-2">
         {spaces.map((space) => {
           const href = `/spaces/${space.id}`;
           const isActive =
@@ -106,71 +131,342 @@ export default function SpaceRail({
             (pathname?.startsWith(`/spaces/${space.id}/`) ?? false);
 
             return (
-              <Link
-                key={space.id}
-                href={href}
-                aria-current={isActive ? "page" : undefined}
-                className={`flex h-12 items-center gap-3 rounded-2xl text-sm font-semibold transition ${
+              <div key={space.id} className="relative">
+                <Link
+                  href={href}
+                  aria-current={isActive ? "page" : undefined}
+                  className={`flex h-12 items-center gap-3 rounded-2xl text-sm font-semibold transition ${
                   isActive
                     ? "bg-(--accent) text-black"
                     : "bg-(--panel) text-(--muted) hover:text-(--accent)"
-                } ${expanded ? "px-4" : "w-12 justify-center"}`}
-              >
-                <span className="text-base">
-                  {space.name.slice(0, 1).toUpperCase()}
-                </span>
-                {expanded && <span className="truncate">{space.name}</span>}
-              </Link>
+                } w-12 justify-center`}
+                >
+                  <span className="text-base">
+                    {space.name.slice(0, 1).toUpperCase()}
+                  </span>
+                </Link>
+                {activeVoiceSpaceId === space.id ? (
+                  <span className="pointer-events-none absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-(--bg-2) bg-(--accent)" />
+                ) : null}
+              </div>
             );
           })}
-      </div>
-      <div
-        className={`flex w-full flex-col gap-2 ${expanded ? "px-2" : "items-center"}`}
-      >
-        <button
-          className={`flex h-12 items-center gap-3 rounded-2xl border border-(--border) text-(--muted) transition hover:border-(--accent) hover:text-(--accent) ${
-            expanded ? "px-4" : "w-12 justify-center"
-          }`}
-          onClick={() => setCreateOpen(true)}
-        >
-          +{expanded && <span>Создать</span>}
-        </button>
-        <button
-          className={`flex h-10 items-center rounded-xl border border-(--border) text-(--muted) transition hover:text-(--accent) ${
-            expanded ? "px-4" : "w-12 justify-center"
-          }`}
-          onClick={() => setRailExpanded((prev) => !prev)}
-          aria-label={
-            railExpanded
-              ? "Свернуть список пространств"
-              : "Развернуть список пространств"
-          }
-        >
-          <svg
-            className={`h-4 w-4 transition-transform ${
-              railExpanded ? "rotate-180" : ""
-            }`}
-            viewBox="0 0 16 16"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            aria-hidden="true"
+        <Tooltip label="Создать пространство" side="right">
+          <button
+            className="flex h-12 w-12 items-center justify-center rounded-2xl border border-(--border) text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
+            onClick={() => setCreateOpen(true)}
+            aria-label="Создать пространство"
           >
-            <path
-              d="M6 3.5L10 8L6 12.5"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          {expanded && <span className="ml-2 text-xs">Свернуть</span>}
-        </button>
+            <span className="text-xl leading-none">+</span>
+          </button>
+        </Tooltip>
       </div>
       <CreateSpaceModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}
       />
+      <Modal
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        title="Настройки"
+      >
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            className="flex items-center gap-2 rounded-xl border border-(--border) px-3 py-2 text-[11px] text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
+          >
+            <span className="text-sm">👤</span>
+            Учетная запись
+          </button>
+          {resolvedIsAdmin ? (
+            <Link
+              href="/admin/users"
+              className="flex items-center gap-2 rounded-xl border border-(--border) px-3 py-2 text-[11px] text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
+            >
+              <span className="text-sm">⚙</span>
+              Админ панель
+            </Link>
+          ) : null}
+        </div>
+        {onLogout ? (
+          <div className="mt-4 border-t border-(--border) pt-4">
+            <button
+              type="button"
+              onClick={onLogout}
+              disabled={loggingOut}
+              className="flex w-full items-center gap-2 rounded-xl border border-(--danger) px-3 py-2 text-[11px] text-(--danger) transition hover:border-red-500/80 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <span className="text-sm">⤴</span>
+              {loggingOut ? "Выход..." : "Выйти"}
+            </button>
+          </div>
+        ) : null}
+      </Modal>
       </aside>
+      <div className="fixed bottom-6 left-6 z-50 hidden w-[340px] flex-col gap-2 rounded-2xl border border-(--border) bg-(--panel) px-3 py-2 shadow-(--shadow-2) lg:flex">
+        {hasVoice ? (
+          <div className="flex flex-col gap-2 border-b border-(--border)/60 pb-2">
+            <div className="flex items-center gap-2">
+              <Tooltip label={qualityLabel} side="right">
+                <span
+                  className={`flex h-8 w-8 items-center justify-center rounded-xl border border-(--border) ${qualityClass}`}
+                  aria-label={qualityLabel}
+                >
+                  <svg
+                    className="h-4 w-4"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M3 11C4.2 9.6 5.8 8.8 8 8.8C10.2 8.8 11.8 9.6 13 11"
+                      stroke="currentColor"
+                      strokeWidth="1.1"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M5 13C5.9 11.9 6.8 11.4 8 11.4C9.2 11.4 10.1 11.9 11 13"
+                      stroke="currentColor"
+                      strokeWidth="1.1"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M1 9C2.7 6.9 5 5.8 8 5.8C11 5.8 13.3 6.9 15 9"
+                      stroke="currentColor"
+                      strokeWidth="1.1"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </span>
+              </Tooltip>
+              <div className="min-w-0 flex-1 text-[12px] text-(--muted)">
+                <span className="truncate">
+                  {(voiceSession.activeVoiceChannelName || "Голосовой канал") +
+                    " / " +
+                    (voiceSession.activeVoiceSpaceName || "Пространство")}
+                </span>
+              </div>
+              <div className="ml-auto flex items-center gap-2">
+              <Tooltip
+                label={
+                  voiceSession.screenShareEnabled
+                    ? "Остановить экран"
+                    : "Показать экран"
+                }
+                side="top"
+              >
+                <button
+                  type="button"
+                  onClick={() => voiceSession.toggleScreenShare()}
+                  disabled={!voiceSession.voiceReady}
+                  className={`flex h-8 w-8 items-center justify-center rounded-xl border transition ${
+                    voiceSession.screenShareEnabled
+                      ? "border-(--accent) text-(--accent)"
+                      : "border-(--border) text-(--muted) hover:border-(--accent) hover:text-(--accent)"
+                  } disabled:cursor-not-allowed disabled:opacity-60`}
+                  aria-label="Шаринг экрана"
+                >
+                  <svg
+                    className="h-5 w-5"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden="true"
+                  >
+                    <rect
+                      x="2.5"
+                      y="3.5"
+                      width="11"
+                      height="8"
+                      rx="1.5"
+                      stroke="currentColor"
+                      strokeWidth="1.2"
+                    />
+                    <path
+                      d="M6 13H10"
+                      stroke="currentColor"
+                      strokeWidth="1.2"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+              </Tooltip>
+              <Tooltip label="Отключиться" side="top">
+                <button
+                  type="button"
+                  onClick={() => void voiceSession.leaveVoiceChannel()}
+                  className="flex h-8 w-8 items-center justify-center rounded-xl border border-(--danger) text-(--danger) transition hover:border-red-500/80"
+                  aria-label="Отключиться"
+                >
+                  <svg
+                    className="h-5 w-5"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden="true"
+                  >
+                    <g transform="translate(-0.35 0) rotate(134 8 8)">
+                      <path
+                        d="M5.6 2.2L6.6 3.2C7 3.6 7 4.2 6.6 4.6L6 5.2C6.7 6.7 7.9 7.9 9.4 8.6L10 8C10.4 7.6 11 7.6 11.4 8L12.4 9C12.8 9.4 12.8 10 12.4 10.4L11.7 11.1C11.3 11.5 10.8 11.7 10.3 11.6C8.6 11.2 7 10.3 5.7 9C4.4 7.7 3.5 6.1 3.1 4.4C3 3.9 3.2 3.4 3.6 3L4.3 2.3C4.8 1.8 5.3 1.8 5.6 2.2Z"
+                        fill="currentColor"
+                      />
+                    </g>
+                  </svg>
+                </button>
+              </Tooltip>
+              </div>
+            </div>
+          </div>
+        ) : null}
+        <div className="flex w-full items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-(--bg-2) text-sm font-semibold">
+            {profileInitial}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium">{profileName}</div>
+            <div className="text-xs text-(--muted)">
+              {resolvedIsAdmin ? "admin" : "user"}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Tooltip
+              label={
+                voiceSession.micMuted ? "Включить микрофон" : "Выключить микрофон"
+              }
+              side="top"
+            >
+              <button
+                type="button"
+                onClick={() => voiceSession.setMicMuted(!voiceSession.micMuted)}
+                className={`flex h-9 w-9 items-center justify-center rounded-xl border transition ${
+                  voiceSession.micMuted
+                    ? "border-(--danger) text-(--danger)"
+                    : "border-(--border) text-(--muted) hover:border-(--accent) hover:text-(--accent)"
+                }`}
+                aria-label="Микрофон"
+              >
+              <svg
+                className="h-4 w-4"
+                viewBox="0 0 16 16"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden="true"
+              >
+                <path
+                  d="M8 3.2C8.9 3.2 9.6 3.9 9.6 4.8V8.2C9.6 9.1 8.9 9.8 8 9.8C7.1 9.8 6.4 9.1 6.4 8.2V4.8C6.4 3.9 7.1 3.2 8 3.2Z"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                />
+                <path
+                  d="M11 7.4V8.3C11 10.1 9.7 11.6 8 11.6C6.3 11.6 5 10.1 5 8.3V7.4"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeLinecap="round"
+                />
+                <path d="M8 11.6V13.2" stroke="currentColor" strokeWidth="1.2" />
+                <path d="M6.3 13.2H9.7" stroke="currentColor" strokeWidth="1.2" />
+                {voiceSession.micMuted ? (
+                  <path
+                    d="M4 4L12 12"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                  />
+                ) : null}
+              </svg>
+              </button>
+            </Tooltip>
+            <Tooltip
+              label={
+                voiceSession.incomingMuted ? "Включить звук" : "Выключить звук"
+              }
+              side="left"
+            >
+              <button
+                type="button"
+                onClick={() =>
+                  voiceSession.setIncomingMuted(!voiceSession.incomingMuted)
+                }
+                className={`flex h-9 w-9 items-center justify-center rounded-xl border transition ${
+                  voiceSession.incomingMuted
+                    ? "border-(--danger) text-(--danger)"
+                    : "border-(--border) text-(--muted) hover:border-(--accent) hover:text-(--accent)"
+                }`}
+                aria-label="Звук"
+              >
+              <svg
+                className="h-4 w-4"
+                viewBox="0 0 16 16"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden="true"
+              >
+                <path
+                  d="M6 5H3.5C3 5 2.6 5.4 2.6 5.9V10.1C2.6 10.6 3 11 3.5 11H6L9.6 13V3L6 5Z"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeLinejoin="round"
+                />
+                {voiceSession.incomingMuted ? (
+                  <path
+                    d="M11.5 5.5L13.8 7.8M13.8 5.5L11.5 7.8"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                  />
+                ) : (
+                  <>
+                    <path
+                      d="M11.2 6.1C11.8 6.7 12.1 7.3 12.1 8C12.1 8.7 11.8 9.3 11.2 9.9"
+                      stroke="currentColor"
+                      strokeWidth="1.1"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M12.6 4.8C13.6 5.8 14.1 6.8 14.1 8C14.1 9.2 13.6 10.2 12.6 11.2"
+                      stroke="currentColor"
+                      strokeWidth="1.1"
+                      strokeLinecap="round"
+                    />
+                  </>
+                )}
+              </svg>
+              </button>
+            </Tooltip>
+            <Tooltip label="Настройки" side="top">
+              <button
+                type="button"
+                className="flex h-9 w-9 items-center justify-center rounded-xl border border-(--border) text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
+                onClick={() => setSettingsOpen(true)}
+                aria-label="Настройки"
+              >
+              <svg
+                className="h-4 w-4"
+                viewBox="0 0 16 16"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden="true"
+              >
+                <path
+                  d="M8 3.5C8.4 3.5 8.7 3.8 8.7 4.2V5.1C9 5.2 9.2 5.3 9.5 5.5L10.2 5.1C10.6 4.9 11.1 5 11.3 5.4L11.9 6.4C12.1 6.7 12 7.2 11.6 7.4L10.9 7.8C10.9 8 10.9 8.2 10.9 8.4L11.6 8.8C12 9 12.1 9.5 11.9 9.8L11.3 10.8C11.1 11.2 10.6 11.3 10.2 11.1L9.5 10.7C9.2 10.9 9 11 8.7 11.1V12C8.7 12.4 8.4 12.7 8 12.7H7C6.6 12.7 6.3 12.4 6.3 12V11.1C6 11 5.8 10.9 5.5 10.7L4.8 11.1C4.4 11.3 3.9 11.2 3.7 10.8L3.1 9.8C2.9 9.5 3 9 3.4 8.8L4.1 8.4C4.1 8.2 4.1 8 4.1 7.8L3.4 7.4C3 7.2 2.9 6.7 3.1 6.4L3.7 5.4C3.9 5 4.4 4.9 4.8 5.1L5.5 5.5C5.8 5.3 6 5.2 6.3 5.1V4.2C6.3 3.8 6.6 3.5 7 3.5H8Z"
+                  stroke="currentColor"
+                  strokeWidth="1.1"
+                  strokeLinejoin="round"
+                />
+                <circle
+                  cx="7.9"
+                  cy="8"
+                  r="2"
+                  stroke="currentColor"
+                  strokeWidth="1.1"
+                />
+              </svg>
+              </button>
+            </Tooltip>
+          </div>
+        </div>
+      </div>
     </>
   );
 }

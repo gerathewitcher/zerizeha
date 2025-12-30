@@ -1,28 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import ChatPanel from "@/components/spaces/ChatPanel";
 import SpaceRail from "@/components/spaces/SpaceRail";
 import SpaceSidebar from "@/components/spaces/SpaceSidebar";
 import VoicePanel from "@/components/spaces/VoicePanel";
-import VoiceWebRTC from "@/components/spaces/VoiceWebRTC";
+import { useVoiceSession } from "@/components/spaces/VoiceSessionProvider";
 import ErrorState from "@/components/ui/ErrorState";
 import { fetchChannelsBySpaceId } from "@/lib/api/channels";
+import { logout } from "@/lib/api/auth";
 import { getHttpStatus } from "@/lib/api/errors";
 import { redirectIfAuthOrOnboardingError } from "@/lib/api/redirects";
 import { fetchSpaceById, fetchSpaces } from "@/lib/api/spaces";
-import { buildWebSocketUrl } from "@/lib/api/ws";
-import {
-  fetchVoiceMembers,
-  joinVoiceChannelById,
-  leaveVoiceChannel,
-} from "@/lib/api/voice";
 import { useMe } from "@/lib/me";
 import { messages } from "@/lib/mock";
 import type { Channel, Space } from "@/lib/api/generated/zerizeha-schemas";
-import type { VoiceMember } from "@/lib/api/generated/zerizeha-schemas";
 
 type ViewState =
   | { status: "loading" }
@@ -41,64 +35,43 @@ export default function SpacePage() {
     typeof params.spaceId === "string"
       ? params.spaceId
       : params.spaceId?.[0] ?? "";
+  const voiceSession = useVoiceSession();
   const [state, setState] = useState<ViewState>({ status: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
-  const [activeVoiceChannelId, setActiveVoiceChannelId] = useState<string | null>(
-    null,
-  );
-  const [voiceMembersByChannelId, setVoiceMembersByChannelId] = useState<
-    Record<string, VoiceMember[]>
-  >({});
-  const [voiceSpeakingByUserId, setVoiceSpeakingByUserId] = useState<
-    Record<string, boolean>
-  >({});
-  const [voiceFatalError, setVoiceFatalError] = useState<string | null>(null);
-  const [screenShareEnabled, setScreenShareEnabled] = useState(false);
-  const [localScreenStream, setLocalScreenStream] = useState<MediaStream | null>(
-    null,
-  );
-  const [screenStreamsByFeedId, setScreenStreamsByFeedId] = useState<
-    Record<string, MediaStream>
-  >({});
-  const [screenShares, setScreenShares] = useState<
-    { feedId: string; userId: string }[]
-  >([]);
-  const [selectedScreenFeedId, setSelectedScreenFeedId] = useState<string | null>(
-    null,
-  );
-  const [focusedUserId, setFocusedUserId] = useState<string | null>(null);
-  const [connectionQuality, setConnectionQuality] = useState<
-    "good" | "ok" | "bad" | "unknown"
-  >("unknown");
-  const [voicePanelExpanded, setVoicePanelExpanded] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [chatOpen, setChatOpen] = useState(true);
-  const lastManualFocusAtRef = useRef(0);
-  const lastActiveSpeakerIdRef = useRef<string | null>(null);
-  const [volumeByUserId, setVolumeByUserId] = useState<Record<string, number>>(
-    {},
-  );
-  const volumeStorageKey = "zerizeha.voice.volumeByUserId";
+  const volumeByUserId = voiceSession.volumeByUserId;
+  const mutedUserIds = voiceSession.mutedUserIds;
+  const micMuted = voiceSession.micMuted;
+  const incomingMuted = voiceSession.incomingMuted;
+  const pttAvailable = voiceSession.pttAvailable;
+  const pttEnabled = voiceSession.pttEnabled;
+  const pttActive = voiceSession.pttActive;
+  const pttKey = voiceSession.pttKey;
+  const capturingPttKey = voiceSession.capturingPttKey;
+  const voicePanelExpanded = voiceSession.voicePanelExpanded;
+  const voiceReady = voiceSession.voiceReady;
+  const activeVoiceChannelId = voiceSession.activeVoiceChannelId;
+  const voiceMembersByChannelId = voiceSession.voiceMembersByChannelId;
+  const voiceSpeakingByUserId = voiceSession.voiceSpeakingByUserId;
+  const voiceFatalError = voiceSession.voiceFatalError;
+  const screenShareEnabled = voiceSession.screenShareEnabled;
+  const localScreenStream = voiceSession.localScreenStream;
+  const screenStreamsByFeedId = voiceSession.screenStreamsByFeedId;
+  const screenShares = voiceSession.screenShares;
+  const selectedScreenFeedId = voiceSession.selectedScreenFeedId;
+  const focusedUserId = voiceSession.focusedUserId;
 
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(volumeStorageKey);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, number>;
-      if (parsed && typeof parsed === "object") {
-        setVolumeByUserId(parsed);
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
+  const formatPttKey = (code: string) => {
+    if (code === "Mouse4") return "Mouse 4";
+    if (code === "Mouse5") return "Mouse 5";
+    if (code.startsWith("Key")) return code.slice(3);
+    if (code.startsWith("Digit")) return code.slice(5);
+    if (code === "Space") return "Space";
+    if (code.startsWith("Arrow")) return code.replace("Arrow", "Arrow ");
+    return code;
+  };
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(volumeStorageKey, JSON.stringify(volumeByUserId));
-    } catch {
-      // ignore
-    }
-  }, [volumeByUserId]);
 
   useEffect(() => {
     if (!spaceId) return;
@@ -152,313 +125,119 @@ export default function SpacePage() {
     return { textChannels, voiceChannels };
   }, [state]);
 
+  const { setSpaceVoiceChannels } = voiceSession;
+  useEffect(() => {
+    if (state.status !== "ready") return;
+    setSpaceVoiceChannels(
+      state.space.id,
+      voiceChannels.map((channel) => channel.id),
+    );
+    if (voiceSession.activeVoiceSpaceId === state.space.id) {
+      voiceSession.setActiveVoiceSpaceName(state.space.name);
+    }
+  }, [
+    state.status,
+    state.status === "ready" ? state.space.id : "",
+    voiceChannels,
+    setSpaceVoiceChannels,
+    voiceSession,
+  ]);
+
   const activeVoiceChannelName = useMemo(() => {
     if (!activeVoiceChannelId) return "";
+    if (
+      voiceSession.activeVoiceSpaceId &&
+      voiceSession.activeVoiceSpaceId !== spaceId
+    ) {
+      return voiceSession.activeVoiceChannelName || "Голосовой канал";
+    }
     const found = voiceChannels.find((ch) => ch.id === activeVoiceChannelId);
-    return found?.name ?? "";
-  }, [activeVoiceChannelId, voiceChannels]);
+    return found?.name ?? voiceSession.activeVoiceChannelName ?? "";
+  }, [
+    activeVoiceChannelId,
+    spaceId,
+    voiceChannels,
+    voiceSession.activeVoiceChannelName,
+    voiceSession.activeVoiceSpaceId,
+  ]);
 
   const activeVoiceMembers = useMemo(() => {
     if (!activeVoiceChannelId) return [];
     return voiceMembersByChannelId[activeVoiceChannelId] ?? [];
   }, [activeVoiceChannelId, voiceMembersByChannelId]);
 
-  const meSummary = useMemo(() => {
-    if (meState.state.status !== "ready") return null;
-    if (!meState.state.me.id) return null;
-    return {
-      id: meState.state.me.id,
-      username: meState.state.me.username || "user",
-      is_admin: !!meState.state.me.is_admin,
-      avatar_url: null as string | null,
-    };
-  }, [meState.state]);
+  const meSummary = voiceSession.meSummary;
 
   const handleSelectVoiceChannel = useCallback(
     async (channelId: string) => {
       if (!channelId) return;
       if (channelId === activeVoiceChannelId) return;
-      setVoiceFatalError(null);
-      setScreenShareEnabled(false);
-      setLocalScreenStream(null);
-      setScreenStreamsByFeedId({});
-      setScreenShares([]);
-      setSelectedScreenFeedId(null);
-      setFocusedUserId(null);
-      setConnectionQuality("unknown");
-      setVoicePanelExpanded(true);
       setChatOpen(false);
       try {
-        await joinVoiceChannelById(channelId);
-        setActiveVoiceChannelId(channelId);
-        if (meSummary?.id) {
-          setVoiceMembersByChannelId((prev) => {
-            const next: Record<string, VoiceMember[]> = {};
-            for (const [cid, members] of Object.entries(prev)) {
-              next[cid] = members.filter((m) => m.id !== meSummary.id);
-            }
-            const current = next[channelId] ?? prev[channelId] ?? [];
-            next[channelId] = [
-              ...current.filter((m) => m.id !== meSummary.id),
-              meSummary,
-            ];
-            return next;
-          });
-        }
+        const channelName =
+          voiceChannels.find((channel) => channel.id === channelId)?.name ?? "";
+        const spaceName = state.status === "ready" ? state.space.name : "";
+        await voiceSession.joinVoiceChannel(
+          spaceId,
+          channelId,
+          channelName,
+          spaceName,
+        );
       } catch (err) {
         console.error("Failed to join voice channel", err);
         redirectIfAuthOrOnboardingError(err);
       }
     },
-    [activeVoiceChannelId, meSummary],
+    [activeVoiceChannelId, spaceId, state, voiceChannels, voiceSession],
   );
 
   const handleLeaveVoiceChannel = useCallback(async () => {
-    let success = false;
     try {
-      await leaveVoiceChannel();
-      success = true;
+      await voiceSession.leaveVoiceChannel();
     } catch (err) {
       console.error("Failed to leave voice channel", err);
       redirectIfAuthOrOnboardingError(err);
-    }
-
-    if (success) {
-      setVoiceFatalError(null);
-      setActiveVoiceChannelId(null);
-      setScreenShareEnabled(false);
-      setLocalScreenStream(null);
-      setScreenStreamsByFeedId({});
-      setScreenShares([]);
-      setSelectedScreenFeedId(null);
-      setFocusedUserId(null);
-      setConnectionQuality("unknown");
-      setVoicePanelExpanded(false);
+    } finally {
       setChatOpen(true);
-      if (meSummary?.id) {
-        setVoiceMembersByChannelId((prev) => {
-          const next: Record<string, VoiceMember[]> = {};
-          for (const [cid, members] of Object.entries(prev)) {
-            next[cid] = members.filter((m) => m.id !== meSummary.id);
-          }
-          return next;
-        });
-      }
     }
-  }, [meSummary]);
-
-  const handleSpeaking = useCallback((userId: string, speaking: boolean) => {
-    if (speaking) lastActiveSpeakerIdRef.current = userId;
-    setVoiceSpeakingByUserId((prev) => {
-      if (prev[userId] === speaking) return prev;
-      return { ...prev, [userId]: speaking };
-    });
-  }, []);
-
-  const handleConnectionQuality = useCallback(
-    (quality: "good" | "ok" | "bad" | "unknown") => {
-      setConnectionQuality(quality);
-    },
-    [],
-  );
-
-  const autoReconnectDone = useRef(false);
-  useEffect(() => {
-    if (autoReconnectDone.current) return;
-    if (activeVoiceChannelId) {
-      autoReconnectDone.current = true;
-      return;
-    }
-    const myId = meSummary?.id;
-    if (!myId) return;
-    const entries = Object.entries(voiceMembersByChannelId);
-    if (!entries.length) return;
-
-    const found = entries.find(([, members]) => members.some((m) => m.id === myId));
-    if (!found) {
-      autoReconnectDone.current = true;
-      return;
-    }
-
-    const channelId = found[0];
-    // Re-issue join to refresh presence TTL and ensure Redis state is consistent.
-    joinVoiceChannelById(channelId)
-      .then(() => {
-        setActiveVoiceChannelId(channelId);
-        autoReconnectDone.current = true;
-      })
-      .catch((err) => {
-        console.error("Auto-reconnect join failed", err);
-        autoReconnectDone.current = true;
-      });
-  }, [activeVoiceChannelId, meSummary?.id, voiceMembersByChannelId]);
-
-  const handleToggleScreenShare = useCallback(() => {
-    setScreenShareEnabled((v) => !v);
-  }, []);
-
-  const handleLocalScreenStream = useCallback((stream: MediaStream | null) => {
-    setLocalScreenStream(stream);
-  }, []);
-
-  const handleRemoteScreenStream = useCallback(
-    (feedId: string, _userId: string, stream: MediaStream) => {
-      setScreenStreamsByFeedId((prev) => ({ ...prev, [feedId]: stream }));
-    },
-    [],
-  );
-
-  const handleRemoteScreenStreamRemoved = useCallback((feedId: string) => {
-    setScreenStreamsByFeedId((prev) => {
-      if (!prev[feedId]) return prev;
-      const next = { ...prev };
-      delete next[feedId];
-      return next;
-    });
-    setSelectedScreenFeedId((prev) => (prev === feedId ? null : prev));
-  }, []);
-
-  const handleScreenSharesChange = useCallback(
-    (shares: { feedId: string; userId: string }[]) => {
-      setScreenShares(shares);
-      setSelectedScreenFeedId((prev) => {
-        if (!prev) return prev;
-        if (prev === "local") return prev;
-        return shares.some((s) => s.feedId === prev) ? prev : null;
-      });
-    },
-    [],
-  );
-
-  const handleScreenShareStateChange = useCallback((active: boolean) => {
-    setScreenShareEnabled(active);
-    if (!active) setLocalScreenStream(null);
-  }, []);
-
-  const handleWatchScreen = useCallback((feedId: string) => {
-    setSelectedScreenFeedId(feedId);
-    setFocusedUserId(null);
-  }, []);
-
-  const handleLeaveScreen = useCallback(() => {
-    setSelectedScreenFeedId(null);
-  }, []);
-
-  const handleFocusUser = useCallback((userId: string | null) => {
-    lastManualFocusAtRef.current = Date.now();
-    setFocusedUserId(userId);
-    setSelectedScreenFeedId(null);
-  }, []);
+  }, [voiceSession]);
 
   const handleToggleExpanded = useCallback(() => {
-    setVoicePanelExpanded((prev) => {
-      const next = !prev;
-      if (next) setChatOpen(false);
-      if (!next) setChatOpen(true);
-      return next;
-    });
-  }, []);
+    voiceSession.setVoicePanelExpanded(!voiceSession.voicePanelExpanded);
+    if (!voiceSession.voicePanelExpanded) {
+      setChatOpen(false);
+    } else {
+      setChatOpen(true);
+    }
+  }, [voiceSession]);
 
-  const handleVolumeChange = useCallback((userId: string, volume: number) => {
-    setVolumeByUserId((prev) => ({
-      ...prev,
-      [userId]: Math.max(0, Math.min(1, volume)),
-    }));
-  }, []);
-
-  useEffect(() => {
-    if (!voicePanelExpanded) return;
-    if (selectedScreenFeedId) return;
-    const lastSpeaker = lastActiveSpeakerIdRef.current;
-    if (!lastSpeaker) return;
-    if (!voiceSpeakingByUserId[lastSpeaker]) return;
-    const sinceManual = Date.now() - lastManualFocusAtRef.current;
-    if (sinceManual < 6000) return;
-    if (focusedUserId === lastSpeaker) return;
-    setFocusedUserId(lastSpeaker);
-  }, [voicePanelExpanded, selectedScreenFeedId, voiceSpeakingByUserId, focusedUserId]);
+  const handleLogout = useCallback(async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      if (activeVoiceChannelId) {
+        await handleLeaveVoiceChannel();
+      }
+      await logout();
+    } catch (err) {
+      console.error("Logout failed", err);
+    } finally {
+      window.location.assign("/login");
+    }
+  }, [loggingOut, activeVoiceChannelId, handleLeaveVoiceChannel]);
 
   const handleToggleChat = useCallback(() => {
     setChatOpen(true);
-    setVoicePanelExpanded(false);
-  }, []);
+    voiceSession.setVoicePanelExpanded(false);
+  }, [voiceSession]);
 
   useEffect(() => {
-    if (!activeVoiceChannelId) setVoiceSpeakingByUserId({});
+    if (voicePanelExpanded) setChatOpen(false);
+  }, [voicePanelExpanded]);
+
+  useEffect(() => {
+    if (!activeVoiceChannelId) setChatOpen(true);
   }, [activeVoiceChannelId]);
-
-  useEffect(() => {
-    if (state.status !== "ready") return;
-    let cancelled = false;
-    let ws: WebSocket | null = null;
-    let retryTimer: number | null = null;
-    let retryMs = 500;
-
-    const connect = () => {
-      if (cancelled) return;
-      const url = buildWebSocketUrl(`/api/ws/voice/${state.space.id}`);
-      ws = new WebSocket(url);
-
-      ws.onopen = async () => {
-        retryMs = 500;
-        // On connect (or reconnect), refresh once via HTTP as a fallback.
-        try {
-          const voiceIds = voiceChannels.map((c) => c.id);
-          if (!voiceIds.length) return;
-          const controller = new AbortController();
-          const results = await Promise.all(
-            voiceIds.map((id) => fetchVoiceMembers(id, controller.signal)),
-          );
-          const next: Record<string, VoiceMember[]> = {};
-          voiceIds.forEach((id, idx) => {
-            next[id] = results[idx];
-          });
-          setVoiceMembersByChannelId(next);
-        } catch (err) {
-          // ignore
-        }
-      };
-
-      ws.onmessage = (ev) => {
-        let msg: any;
-        try {
-          msg = JSON.parse(String(ev.data));
-        } catch {
-          return;
-        }
-        if (msg?.type === "snapshot") {
-          const map = msg?.payload?.voice_members_by_channel_id;
-          if (map && typeof map === "object") setVoiceMembersByChannelId(map);
-          return;
-        }
-        if (msg?.type === "channel_members") {
-          const channelId = msg?.payload?.channel_id;
-          const members = msg?.payload?.members;
-          if (!channelId || !Array.isArray(members)) return;
-          setVoiceMembersByChannelId((prev) => ({ ...prev, [channelId]: members }));
-        }
-      };
-
-      ws.onclose = () => {
-        if (cancelled) return;
-        retryTimer = window.setTimeout(() => {
-          retryMs = Math.min(8000, Math.round(retryMs * 1.6));
-          connect();
-        }, retryMs);
-      };
-    };
-
-    connect();
-    return () => {
-      cancelled = true;
-      if (retryTimer) window.clearTimeout(retryTimer);
-      try {
-        ws?.close();
-      } catch {
-        // ignore
-      }
-    };
-  }, [state.status, state.status === "ready" ? state.space.id : "", voiceChannels]);
 
   return (
     <div className="min-h-screen bg-(--bg) text-(--text)">
@@ -469,7 +248,7 @@ export default function SpacePage() {
             <button
               type="button"
               className="rounded-full border border-amber-500/30 px-3 py-1 text-xs text-amber-200 transition hover:border-amber-400"
-              onClick={() => setVoiceFatalError(null)}
+              onClick={voiceSession.clearVoiceFatalError}
             >
               Закрыть
             </button>
@@ -606,6 +385,9 @@ export default function SpacePage() {
         <SpaceRail
           spaces={railSpaces}
           isAdmin={meState.state.status === "ready" ? meState.state.me.is_admin : false}
+          onLogout={handleLogout}
+          loggingOut={loggingOut}
+          activeVoiceSpaceId={voiceSession.activeVoiceSpaceId}
         />
         {state.status === "ready" ? (
           <>
@@ -617,14 +399,14 @@ export default function SpacePage() {
               voiceMembersByChannelId={voiceMembersByChannelId}
               activeVoiceChannelId={activeVoiceChannelId}
               speakingByUserId={voiceSpeakingByUserId}
-              connectionQuality={connectionQuality}
               onSelectVoiceChannel={handleSelectVoiceChannel}
               onLeaveVoiceChannel={handleLeaveVoiceChannel}
               onToggleChat={handleToggleChat}
               chatOpen={chatOpen}
               volumeByUserId={volumeByUserId}
-              onVolumeChange={handleVolumeChange}
+              onVolumeChange={voiceSession.setVolume}
               onChannelsChanged={() => setReloadKey((v) => v + 1)}
+              mutedUserIds={mutedUserIds}
             />
             {chatOpen && !voicePanelExpanded ? (
               <ChatPanel
@@ -632,27 +414,45 @@ export default function SpacePage() {
                 messages={chatMessages}
               />
             ) : null}
-            <VoicePanel
-              users={activeVoiceMembers}
-              roomName={activeVoiceChannelName || undefined}
-              onLeave={handleLeaveVoiceChannel}
-              speakingByUserId={voiceSpeakingByUserId}
-              selfUserId={meSummary?.id ?? null}
-              screenShareEnabled={screenShareEnabled}
-              onToggleScreenShare={handleToggleScreenShare}
-              localScreenStream={localScreenStream}
-              screenShares={screenShares}
-              screenStreamsByFeedId={screenStreamsByFeedId}
-              selectedScreenFeedId={selectedScreenFeedId}
-              onWatchScreen={handleWatchScreen}
-              onLeaveScreen={handleLeaveScreen}
-              expanded={voicePanelExpanded}
-              onToggleExpanded={handleToggleExpanded}
-              focusedUserId={focusedUserId}
-              onFocusUser={handleFocusUser}
-              volumeByUserId={volumeByUserId}
-              onVolumeChange={handleVolumeChange}
-            />
+            {activeVoiceChannelId ? (
+              <VoicePanel
+                users={activeVoiceMembers}
+                roomName={activeVoiceChannelName || undefined}
+                onLeave={handleLeaveVoiceChannel}
+                speakingByUserId={voiceSpeakingByUserId}
+                selfUserId={meSummary?.id ?? null}
+                screenShareEnabled={screenShareEnabled}
+                onToggleScreenShare={voiceSession.toggleScreenShare}
+                localScreenStream={localScreenStream}
+                screenShares={screenShares}
+                screenStreamsByFeedId={screenStreamsByFeedId}
+                selectedScreenFeedId={selectedScreenFeedId}
+                onWatchScreen={voiceSession.watchScreen}
+                onLeaveScreen={voiceSession.leaveScreen}
+                expanded={voicePanelExpanded}
+                onToggleExpanded={handleToggleExpanded}
+                focusedUserId={focusedUserId}
+                onFocusUser={voiceSession.focusUser}
+                volumeByUserId={volumeByUserId}
+                onVolumeChange={voiceSession.setVolume}
+                pttAvailable={pttAvailable}
+                pttEnabled={pttEnabled}
+                pttActive={pttActive}
+                pttKeyLabel={formatPttKey(pttKey)}
+                capturingPttKey={capturingPttKey}
+                onTogglePtt={() => voiceSession.setPttEnabled(!pttEnabled)}
+                onRequestPttKey={() => voiceSession.setCapturingPttKey(true)}
+                micMuted={micMuted}
+                onToggleMute={() => voiceSession.setMicMuted(!micMuted)}
+                incomingMuted={incomingMuted}
+                onToggleIncomingMute={() =>
+                  voiceSession.setIncomingMuted(!incomingMuted)
+                }
+                mutedUserIds={mutedUserIds}
+                onToggleUserMute={voiceSession.toggleUserMute}
+                controlsEnabled={voiceReady}
+              />
+            ) : null}
           </>
         ) : state.status === "error" ? (
           <main className="flex min-w-0 flex-1 items-center justify-center px-6">
@@ -668,41 +468,6 @@ export default function SpacePage() {
           </main>
         )}
       </div>
-      {state.status === "ready" ? (
-        <VoiceWebRTC
-          channelId={activeVoiceChannelId}
-          onSpeaking={handleSpeaking}
-          selfUserId={meSummary?.id ?? null}
-          onLocalScreenStream={handleLocalScreenStream}
-          onRemoteScreenStream={handleRemoteScreenStream}
-          onRemoteScreenStreamRemoved={handleRemoteScreenStreamRemoved}
-          onScreenSharesChange={handleScreenSharesChange}
-          onConnectionQuality={handleConnectionQuality}
-          screenShareEnabled={screenShareEnabled}
-          onScreenShareStateChange={handleScreenShareStateChange}
-          watchFeedId={selectedScreenFeedId === "local" ? null : selectedScreenFeedId}
-          volumeByUserId={volumeByUserId}
-          onFatalError={(message) => {
-            // If we fail to bootstrap/reconnect, clean stale "in channel" presence.
-            console.error("Voice fatal error", message);
-            setVoiceFatalError(message);
-            leaveVoiceChannel()
-              .catch(() => {})
-              .finally(() => {
-                setActiveVoiceChannelId(null);
-                setScreenShareEnabled(false);
-                setLocalScreenStream(null);
-                setScreenStreamsByFeedId({});
-                setScreenShares([]);
-                setSelectedScreenFeedId(null);
-                setFocusedUserId(null);
-                setConnectionQuality("unknown");
-                setVoicePanelExpanded(false);
-                setChatOpen(true);
-              });
-          }}
-        />
-      ) : null}
     </div>
   );
 }

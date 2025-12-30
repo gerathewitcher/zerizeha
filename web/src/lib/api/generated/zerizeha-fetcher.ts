@@ -25,39 +25,6 @@ export type ZerizehaFetcherExtraProps = {
 const trimTrailingSlash = (value: string) =>
   value.endsWith("/") ? value.slice(0, -1) : value;
 
-const DESKTOP_ACCESS_TOKEN_KEY = "desktop_access_token";
-const DESKTOP_REFRESH_TOKEN_KEY = "desktop_refresh_token";
-
-const isDesktopClient = () => {
-  if (typeof window === "undefined") return false;
-  const w = window as unknown as {
-    __TAURI__?: unknown;
-    __TAURI_INTERNALS__?: unknown;
-  };
-  return Boolean(w.__TAURI__ || w.__TAURI_INTERNALS__);
-};
-
-const readDesktopToken = (key: string) => {
-  if (typeof window === "undefined") return "";
-  return window.localStorage.getItem(key) ?? "";
-};
-
-const persistDesktopTokens = (payload: {
-  access_token?: string;
-  refresh_token?: string;
-}) => {
-  if (typeof window === "undefined") return;
-  if (payload.access_token) {
-    window.localStorage.setItem(DESKTOP_ACCESS_TOKEN_KEY, payload.access_token);
-  }
-  if (payload.refresh_token) {
-    window.localStorage.setItem(
-      DESKTOP_REFRESH_TOKEN_KEY,
-      payload.refresh_token,
-    );
-  }
-};
-
 const withProtocol = (value: string) => {
   if (/^https?:\/\//i.test(value)) return value;
   const protocol =
@@ -133,13 +100,6 @@ export async function zerizehaFetch<
     if (accessToken && !requestHeaders.Authorization) {
       requestHeaders.Authorization = `Bearer ${accessToken}`;
     }
-    if (!requestHeaders.Authorization && isDesktopClient()) {
-      const storedAccess = readDesktopToken(DESKTOP_ACCESS_TOKEN_KEY);
-      if (storedAccess) {
-        requestHeaders.Authorization = `Bearer ${storedAccess}`;
-      }
-    }
-
     const methodHasBody = body !== undefined && body !== null;
     if (methodHasBody && !(body instanceof FormData)) {
       requestHeaders["Content-Type"] = "application/json";
@@ -244,16 +204,11 @@ async function tryRefreshSession({
   fetcher: typeof fetch;
 }): Promise<boolean> {
   try {
-    const refreshToken = isDesktopClient()
-      ? readDesktopToken(DESKTOP_REFRESH_TOKEN_KEY)
-      : "";
     const res = await fetcher(`${resolveBaseUrl(baseUrl)}/api/auth/refresh`, {
       method: "POST",
       credentials,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(
-        refreshToken ? { refresh_token: refreshToken } : {},
-      ),
+      body: JSON.stringify({}),
     });
     if (!res.ok) return false;
     const contentType = res.headers.get("content-type") ?? "";
@@ -262,9 +217,7 @@ async function tryRefreshSession({
         access_token?: string;
         refresh_token?: string;
       };
-      if (isDesktopClient()) {
-        persistDesktopTokens(payload);
-      }
+      void payload;
     }
     return true;
   } catch {

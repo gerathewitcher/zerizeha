@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import SpaceMembersSection from "@/components/spaces/SpaceMembersSection";
 import SpaceRail from "@/components/spaces/SpaceRail";
 import SpaceSidebar from "@/components/spaces/SpaceSidebar";
+import { useVoiceSession } from "@/components/spaces/VoiceSessionProvider";
 import ErrorState from "@/components/ui/ErrorState";
+import { logout } from "@/lib/api/auth";
 import { fetchChannelsBySpaceId } from "@/lib/api/channels";
 import { getHttpStatus } from "@/lib/api/errors";
 import { redirectIfAuthOrOnboardingError } from "@/lib/api/redirects";
@@ -26,6 +28,7 @@ type ViewState =
 
 export default function SpaceSettingsPage() {
   const meState = useMe();
+  const voiceSession = useVoiceSession();
   const params = useParams<{ spaceId?: string | string[] }>();
   const spaceId =
     typeof params.spaceId === "string"
@@ -33,6 +36,7 @@ export default function SpaceSettingsPage() {
       : params.spaceId?.[0] ?? "";
   const [state, setState] = useState<ViewState>({ status: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
     if (!spaceId) return;
@@ -73,6 +77,21 @@ export default function SpaceSettingsPage() {
     return state.spaces.map((space) => ({ id: space.id, name: space.name }));
   }, [state]);
 
+  const handleLogout = useCallback(async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      if (voiceSession.activeVoiceChannelId) {
+        await voiceSession.leaveVoiceChannel();
+      }
+      await logout();
+    } catch (err) {
+      console.error("Logout failed", err);
+    } finally {
+      window.location.assign("/login");
+    }
+  }, [loggingOut, voiceSession]);
+
   const { textChannels, voiceChannels } = useMemo(() => {
     if (state.status !== "ready") return { textChannels: [], voiceChannels: [] };
     const textChannels = state.channels
@@ -84,10 +103,29 @@ export default function SpaceSettingsPage() {
     return { textChannels, voiceChannels };
   }, [state]);
 
+  const { setSpaceVoiceChannels } = voiceSession;
+  useEffect(() => {
+    if (state.status !== "ready") return;
+    setSpaceVoiceChannels(
+      state.space.id,
+      voiceChannels.map((channel) => channel.id),
+    );
+  }, [
+    state.status,
+    state.status === "ready" ? state.space.id : "",
+    voiceChannels,
+    setSpaceVoiceChannels,
+  ]);
+
   return (
     <div className="min-h-screen bg-(--bg) text-(--text)">
       <div className="flex h-screen overflow-hidden">
-        <SpaceRail spaces={railSpaces} />
+        <SpaceRail
+          spaces={railSpaces}
+          onLogout={handleLogout}
+          loggingOut={loggingOut}
+          activeVoiceSpaceId={voiceSession.activeVoiceSpaceId}
+        />
         {state.status === "ready" ? (
           <SpaceSidebar
             spaceId={state.space.id}

@@ -36,6 +36,7 @@ type RemoteTrack = { feedId: string; stream: MediaStream; userId?: string };
 type FeedKind = "voice" | "screen";
 
 type ScreenShareInfo = { feedId: string; userId: string };
+type DesktopSource = { id: string; name: string; thumbnail?: string | null };
 
 const parseUrls = (raw: string | undefined): string[] =>
   (raw ?? "")
@@ -248,6 +249,8 @@ type VoiceWebRTCProps = {
   channelId: string | null;
   onSpeaking?: (userId: string, speaking: boolean) => void;
   selfUserId?: string | null;
+  micEnabled?: boolean;
+  outputMuted?: boolean;
   onLocalScreenStream?: (stream: MediaStream | null) => void;
   onRemoteScreenStream?: (feedId: string, userId: string, stream: MediaStream) => void;
   onRemoteScreenStreamRemoved?: (feedId: string) => void;
@@ -258,12 +261,16 @@ type VoiceWebRTCProps = {
   onScreenShareStateChange?: (active: boolean) => void;
   watchFeedId?: string | null;
   volumeByUserId?: Record<string, number>;
+  mutedUserIds?: Record<string, boolean>;
+  onReady?: () => void;
 };
 
 export default function VoiceWebRTC({
   channelId,
   onSpeaking,
   selfUserId,
+  micEnabled = true,
+  outputMuted = false,
   onLocalScreenStream,
   onRemoteScreenStream,
   onRemoteScreenStreamRemoved,
@@ -274,8 +281,14 @@ export default function VoiceWebRTC({
   onScreenShareStateChange,
   watchFeedId = null,
   volumeByUserId = {},
+  mutedUserIds = {},
+  onReady,
 }: VoiceWebRTCProps) {
   const [remoteTracks, setRemoteTracks] = useState<RemoteTrack[]>([]);
+  const [screenSources, setScreenSources] = useState<DesktopSource[] | null>(null);
+  const screenPickerResolveRef = useRef<((sourceId: string | null) => void) | null>(
+    null,
+  );
 
   const onSpeakingRef = useRef<VoiceWebRTCProps["onSpeaking"]>(onSpeaking);
   useEffect(() => {
@@ -296,6 +309,16 @@ export default function VoiceWebRTC({
   useEffect(() => {
     selfUserIdRef.current = selfUserId;
   }, [selfUserId]);
+
+  const micEnabledRef = useRef<boolean>(micEnabled);
+  useEffect(() => {
+    micEnabledRef.current = micEnabled;
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    for (const track of stream.getAudioTracks()) {
+      track.enabled = micEnabled;
+    }
+  }, [micEnabled]);
 
   const screenShareEnabledRef = useRef<boolean>(screenShareEnabled);
   useEffect(() => {
@@ -360,6 +383,11 @@ export default function VoiceWebRTC({
   useEffect(() => {
     onScreenShareStateChangeRef.current = onScreenShareStateChange;
   }, [onScreenShareStateChange]);
+
+  const onReadyRef = useRef<VoiceWebRTCProps["onReady"]>(onReady);
+  useEffect(() => {
+    onReadyRef.current = onReady;
+  }, [onReady]);
 
   useEffect(() => {
     if (!channelId) {
@@ -558,6 +586,16 @@ export default function VoiceWebRTC({
           return;
         }
 
+        if (key === "__self__" && !micEnabledRef.current) {
+          if (speaking) {
+            speaking = false;
+            lastOnMs = 0;
+            notify(userId, false);
+          }
+          timer = window.setTimeout(tick, 140);
+          return;
+        }
+
         analyser.getByteTimeDomainData(buf);
         let sum = 0;
         for (let i = 0; i < buf.length; i++) {
@@ -703,14 +741,42 @@ export default function VoiceWebRTC({
       ensureSubscriber(feedId).catch(() => {});
     };
 
+    const requestScreenSource = async (): Promise<string | null | undefined> => {
+      if (!window.electron?.desktop?.getSources) return undefined;
+      const sources = await window.electron.desktop.getSources();
+      if (!sources?.length) return null;
+      return new Promise((resolve) => {
+        screenPickerResolveRef.current = resolve;
+        setScreenSources(sources);
+      });
+    };
+
     const startScreenShare = async () => {
       if (!client || screenActive) return;
       if (screenPc) return;
       try {
-        screenStream = await navigator.mediaDevices.getDisplayMedia({
-          video: true,
-          audio: false,
-        });
+        const selectedSourceId = await requestScreenSource();
+        if (selectedSourceId === null) {
+          onScreenShareStateChangeRef.current?.(false);
+          return;
+        }
+        if (selectedSourceId) {
+          screenStream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: {
+              // Electron-specific constraint for desktop capture.
+              mandatory: {
+                chromeMediaSource: "desktop",
+                chromeMediaSourceId: selectedSourceId,
+              },
+            } as any,
+          });
+        } else {
+          screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: false,
+          });
+        }
       } catch {
         onScreenShareStateChangeRef.current?.(false);
         return;
@@ -806,6 +872,7 @@ export default function VoiceWebRTC({
     }
 
     (async () => {
+      let notifiedReady = false;
       try {
         startStatsPolling();
         const bootstrap = await bootstrapVoiceWebRTC(channelId);
@@ -965,6 +1032,7 @@ export default function VoiceWebRTC({
         const audioTrack = localStream.getAudioTracks()[0] ?? null;
 
         if (audioTrack) {
+          audioTrack.enabled = micEnabledRef.current;
           publisherPc.addTrack(audioTrack, localStream);
         }
         publisherPc.onicecandidate = (ev) => {
@@ -994,6 +1062,10 @@ export default function VoiceWebRTC({
         for (const cand of publisherIceBuffer.splice(0, publisherIceBuffer.length)) {
           await addIceCandidateSafe(publisherPc, cand);
         }
+        if (!notifiedReady) {
+          notifiedReady = true;
+          onReadyRef.current?.();
+        }
 
         for (const p of ready.payload.publishers) {
           if (!p.feed_id || p.feed_id === selfFeedId) continue;
@@ -1019,11 +1091,71 @@ export default function VoiceWebRTC({
   if (!channelId) return null;
   return (
     <>
+      {screenSources ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 px-4 py-6">
+          <div className="w-full max-w-4xl rounded-2xl border border-(--border) bg-(--panel) p-4 text-(--text) shadow-2xl">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-semibold">Выберите окно или экран</h3>
+                <p className="mt-1 text-xs text-(--muted)">
+                  Кликните по превью, чтобы начать шаринг.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-full border border-(--border) px-3 py-1 text-xs text-(--muted) transition hover:text-(--accent)"
+                onClick={() => {
+                  screenPickerResolveRef.current?.(null);
+                  screenPickerResolveRef.current = null;
+                  setScreenSources(null);
+                }}
+              >
+                Отмена
+              </button>
+            </div>
+            <div className="mt-4 grid max-h-[60vh] grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3 overflow-y-auto pr-1">
+              {screenSources.map((source) => (
+                <button
+                  key={source.id}
+                  type="button"
+                  className="group overflow-hidden rounded-xl border border-(--border) bg-(--bg-2) text-left transition hover:border-(--accent)"
+                  onClick={() => {
+                    screenPickerResolveRef.current?.(source.id);
+                    screenPickerResolveRef.current = null;
+                    setScreenSources(null);
+                  }}
+                >
+                  {source.thumbnail ? (
+                    <img
+                      src={source.thumbnail}
+                      alt={source.name}
+                      className="h-28 w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-28 items-center justify-center text-xs text-(--muted)">
+                      Нет превью
+                    </div>
+                  )}
+                  <div className="px-3 py-2 text-xs text-(--text)">
+                    <span className="line-clamp-2">{source.name}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
       {remoteTracks.map((track) => (
         <RemoteAudio
           key={track.feedId}
           stream={track.stream}
-          volume={volumeByUserId[track.userId ?? ""] ?? 1}
+          volume={
+            outputMuted
+              ? 0
+              : mutedUserIds[track.userId ?? ""]
+                ? 0
+                : volumeByUserId[track.userId ?? ""] ?? 1
+          }
         />
       ))}
     </>

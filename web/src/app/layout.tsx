@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { IBM_Plex_Sans, Sora } from "next/font/google";
 import "./globals.css";
 import { MeProvider } from "@/lib/me";
+import VoiceSessionProvider from "@/components/spaces/VoiceSessionProvider";
 
 const plexSans = IBM_Plex_Sans({
   variable: "--font-plex-sans",
@@ -28,7 +29,9 @@ export default function RootLayout({
   return (
     <html lang="ru">
       <body className={`${plexSans.variable} ${sora.variable} antialiased`}>
-        <MeProvider>{children}</MeProvider>
+        <MeProvider>
+          <VoiceSessionProvider>{children}</VoiceSessionProvider>
+        </MeProvider>
       </body>
     </html>
   );
