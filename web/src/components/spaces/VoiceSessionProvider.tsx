@@ -159,8 +159,10 @@ export default function VoiceSessionProvider({
       username: meState.state.me.username || "user",
       is_admin: !!meState.state.me.is_admin,
       avatar_url: null as string | null,
+      muted: micMuted,
+      deafened: incomingMuted,
     };
-  }, [meState.state]);
+  }, [incomingMuted, meState.state, micMuted]);
 
   const micEnabled =
     pttAvailable && pttEnabled ? pttActive && !micMuted : !micMuted;
