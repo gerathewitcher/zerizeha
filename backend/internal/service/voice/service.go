@@ -2,6 +2,7 @@ package voice
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -30,17 +31,20 @@ func (s *serv) Join(ctx context.Context, userID string, channelID string) error 
 
 	joinedAt := time.Now().UnixMilli()
 	userKey := voiceUserChannelKey(userID)
+	stateKey := voiceUserStateKey(userID)
 
 	prev, err := s.redis.Get(ctx, userKey).Result()
 	if err != nil && err != redis.Nil {
 		return err
 	}
 
+	statePayload, _ := json.Marshal(service.VoiceState{Muted: false, Deafened: false})
 	pipe := s.redis.Pipeline()
 	if prev != "" && prev != channelID {
 		pipe.ZRem(ctx, voiceChannelMembersKey(prev), userID)
 	}
 	pipe.Set(ctx, userKey, channelID, s.ttl)
+	pipe.Set(ctx, stateKey, statePayload, s.ttl)
 	pipe.ZAdd(ctx, voiceChannelMembersKey(channelID), redis.Z{
 		Score:  float64(joinedAt),
 		Member: userID,
@@ -56,6 +60,7 @@ func (s *serv) Leave(ctx context.Context, userID string) error {
 	}
 
 	userKey := voiceUserChannelKey(userID)
+	stateKey := voiceUserStateKey(userID)
 	prev, err := s.redis.Get(ctx, userKey).Result()
 	if err != nil && err != redis.Nil {
 		return err
@@ -66,6 +71,7 @@ func (s *serv) Leave(ctx context.Context, userID string) error {
 
 	pipe := s.redis.Pipeline()
 	pipe.Del(ctx, userKey)
+	pipe.Del(ctx, stateKey)
 	pipe.ZRem(ctx, voiceChannelMembersKey(prev), userID)
 	_, err = pipe.Exec(ctx)
 	return err
@@ -77,11 +83,13 @@ func (s *serv) Heartbeat(ctx context.Context, userID string) error {
 	}
 
 	userKey := voiceUserChannelKey(userID)
+	stateKey := voiceUserStateKey(userID)
 	// Heartbeat only extends user presence TTL; it must NOT affect the ordering in channel members ZSET.
 	// Ordering is based on join timestamp.
 	if err := s.redis.Expire(ctx, userKey, s.ttl).Err(); err != nil && err != redis.Nil {
 		return err
 	}
+	_ = s.redis.Expire(ctx, stateKey, s.ttl).Err()
 	return nil
 }
 
@@ -115,9 +123,11 @@ func (s *serv) ListMemberIDs(ctx context.Context, channelID string) ([]string, e
 
 	active := make([]string, 0, len(ids))
 	var stale []interface{}
+	var staleStateKeys []string
 	for idx, userID := range ids {
 		if idx >= len(values) {
 			stale = append(stale, userID)
+			staleStateKeys = append(staleStateKeys, voiceUserStateKey(userID))
 			continue
 		}
 
@@ -125,6 +135,7 @@ func (s *serv) ListMemberIDs(ctx context.Context, channelID string) ([]string, e
 		value, ok := raw.(string)
 		if !ok || value == "" || value != channelID {
 			stale = append(stale, userID)
+			staleStateKeys = append(staleStateKeys, voiceUserStateKey(userID))
 			continue
 		}
 		active = append(active, userID)
@@ -132,6 +143,9 @@ func (s *serv) ListMemberIDs(ctx context.Context, channelID string) ([]string, e
 
 	if len(stale) > 0 {
 		_ = s.redis.ZRem(ctx, key, stale...).Err()
+	}
+	if len(staleStateKeys) > 0 {
+		_ = s.redis.Del(ctx, staleStateKeys...).Err()
 	}
 
 	return active, nil
@@ -148,10 +162,52 @@ func (s *serv) GetUserChannelID(ctx context.Context, userID string) (string, err
 	return value, nil
 }
 
+func (s *serv) SetUserState(ctx context.Context, userID string, state service.VoiceState) error {
+	if userID == "" {
+		return fmt.Errorf("userID is required")
+	}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	return s.redis.Set(ctx, voiceUserStateKey(userID), payload, s.ttl).Err()
+}
+
+func (s *serv) GetUserStates(ctx context.Context, userIDs []string) (map[string]service.VoiceState, error) {
+	result := make(map[string]service.VoiceState, len(userIDs))
+	if len(userIDs) == 0 {
+		return result, nil
+	}
+	keys := make([]string, 0, len(userIDs))
+	for _, id := range userIDs {
+		keys = append(keys, voiceUserStateKey(id))
+	}
+	values, err := s.redis.MGet(ctx, keys...).Result()
+	if err != nil && err != redis.Nil {
+		return result, err
+	}
+	for idx, raw := range values {
+		if idx >= len(userIDs) {
+			break
+		}
+		userID := userIDs[idx]
+		state := service.VoiceState{}
+		if payload, ok := raw.(string); ok && payload != "" {
+			_ = json.Unmarshal([]byte(payload), &state)
+		}
+		result[userID] = state
+	}
+	return result, nil
+}
+
 func voiceUserChannelKey(userID string) string {
 	return fmt.Sprintf("voice:user:%s:channel", userID)
 }
 
 func voiceChannelMembersKey(channelID string) string {
 	return fmt.Sprintf("voice:channel:%s:members", channelID)
+}
+
+func voiceUserStateKey(userID string) string {
+	return fmt.Sprintf("voice:user:%s:state", userID)
 }

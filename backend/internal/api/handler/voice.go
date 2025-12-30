@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/gofiber/fiber/v2"
 
 	api "zerizeha/internal/api"
+	"zerizeha/internal/service"
 )
 
 func (h *Handler) JoinVoiceChannel(c *fiber.Ctx, id string) error {
@@ -109,6 +111,7 @@ func (h *Handler) ListVoiceMembers(c *fiber.Ctx, id string) error {
 	if err != nil {
 		return writeError(c, err)
 	}
+	states, _ := h.voice.GetUserStates(c.UserContext(), ids)
 
 	userByID := make(map[string]struct {
 		username string
@@ -127,12 +130,48 @@ func (h *Handler) ListVoiceMembers(c *fiber.Ctx, id string) error {
 		if !ok {
 			continue
 		}
+		state := states[uid]
 		result = append(result, api.VoiceMember{
 			Id:       uid,
 			Username: info.username,
 			IsAdmin:  info.isAdmin,
+			Muted:    state.Muted,
+			Deafened: state.Deafened,
 		})
 	}
 
 	return c.JSON(result)
+}
+
+type voiceStateRequest struct {
+	Muted    bool `json:"muted"`
+	Deafened bool `json:"deafened"`
+}
+
+func (h *Handler) UpdateVoiceState(c *fiber.Ctx) error {
+	userID, ok := c.Locals(UserIDLocalKey).(string)
+	if !ok || userID == "" {
+		return writeHTTPError(c, http.StatusUnauthorized, "unauthorized")
+	}
+
+	var payload voiceStateRequest
+	if err := json.Unmarshal(c.Body(), &payload); err != nil {
+		return writeHTTPError(c, http.StatusBadRequest, "invalid payload")
+	}
+
+	if err := h.voice.SetUserState(c.UserContext(), userID, service.VoiceState{
+		Muted:    payload.Muted,
+		Deafened: payload.Deafened,
+	}); err != nil {
+		return writeError(c, err)
+	}
+
+	channelID, _ := h.voice.GetUserChannelID(c.UserContext(), userID)
+	if channelID != "" {
+		if ch, err := h.space.GetChannelByID(channelID); err == nil {
+			h.broadcastVoiceChannelMembers(ch.SpaceID, channelID)
+		}
+	}
+
+	return c.SendStatus(http.StatusNoContent)
 }

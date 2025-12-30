@@ -105,6 +105,11 @@ func (h *Handler) Refresh(c *fiber.Ctx) error {
 	return h.handleAuthResponse(c, response, err, false)
 }
 
+func (h *Handler) Logout(c *fiber.Ctx) error {
+	h.clearAuthCookies(c)
+	return c.SendStatus(http.StatusNoContent)
+}
+
 func (h *Handler) handleAuthResponse(c *fiber.Ctx, response authservice.TokenResponse, err error, shouldRedirect bool) error {
 	if err == nil {
 		h.setAuthCookies(c, response)

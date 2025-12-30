@@ -12,6 +12,7 @@ import (
 	apihandler "zerizeha/internal/api/handler"
 	"zerizeha/internal/config"
 	"zerizeha/internal/service"
+	"zerizeha/pkg/logger"
 )
 
 func authMiddleware(cfg config.Config, userService service.UserService) fiber.Handler {
@@ -24,18 +25,18 @@ func authMiddleware(cfg config.Config, userService service.UserService) fiber.Ha
 		}
 
 		tokenStr := bearerToken(c)
-	if tokenStr == "" {
-		tokenStr = c.Cookies("access_token")
-	}
-	if tokenStr == "" {
-		tokenStr = strings.TrimSpace(c.Query("access_token"))
-	}
-	if tokenStr == "" {
-		tokenStr = strings.TrimSpace(c.Query("token"))
-	}
-	if tokenStr == "" {
-		return c.Status(http.StatusUnauthorized).JSON(api.ErrorMap{"error": "missing token"})
-	}
+		if tokenStr == "" {
+			tokenStr = c.Cookies("access_token")
+		}
+		if tokenStr == "" {
+			tokenStr = strings.TrimSpace(c.Query("access_token"))
+		}
+		if tokenStr == "" {
+			tokenStr = strings.TrimSpace(c.Query("token"))
+		}
+		if tokenStr == "" {
+			return c.Status(http.StatusUnauthorized).JSON(api.ErrorMap{"error": "missing token"})
+		}
 
 		claims := &jwt.RegisteredClaims{}
 		token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
@@ -62,10 +63,12 @@ func authMiddleware(cfg config.Config, userService service.UserService) fiber.Ha
 		c.Locals(apihandler.UserLocalKey, user)
 
 		if strings.HasPrefix(path, "/api/admin") && !user.IsAdmin {
+			logger.Info("not allowed to admin panel")
 			return c.Status(http.StatusForbidden).JSON(api.ErrorMap{"error": "forbidden"})
 		}
 
-		if path != "/api/me" && (!user.Confirmed || !user.IsAdmin) {
+		if path != "/api/me" && !user.Confirmed {
+			logger.Info("not confirmed")
 			return c.Status(http.StatusForbidden).JSON(api.ErrorMap{"error": "user is not confirmed"})
 		}
 

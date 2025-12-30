@@ -46,6 +46,8 @@ type VoiceService interface {
 	Heartbeat(ctx context.Context, userID string) error
 	ListMemberIDs(ctx context.Context, channelID string) ([]string, error)
 	GetUserChannelID(ctx context.Context, userID string) (string, error)
+	SetUserState(ctx context.Context, userID string, state VoiceState) error
+	GetUserStates(ctx context.Context, userIDs []string) (map[string]VoiceState, error)
 }
 
 type JanusService interface {
@@ -75,4 +77,9 @@ type JanusJSEP struct {
 type JanusPublisher struct {
 	FeedID  string `json:"feed_id"`
 	Display string `json:"display"`
+}
+
+type VoiceState struct {
+	Muted    bool `json:"muted"`
+	Deafened bool `json:"deafened"`
 }

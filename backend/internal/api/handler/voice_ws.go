@@ -195,6 +195,7 @@ func (h *Handler) buildVoicePresenceSnapshot(ctx context.Context, spaceID string
 		if err != nil {
 			return nil, err
 		}
+		states, _ := h.voice.GetUserStates(ctx, ids)
 		userByID := make(map[string]struct {
 			username string
 			isAdmin  bool
@@ -212,10 +213,13 @@ func (h *Handler) buildVoicePresenceSnapshot(ctx context.Context, spaceID string
 			if !ok {
 				continue
 			}
+			state := states[uid]
 			members = append(members, api.VoiceMember{
 				Id:       uid,
 				Username: info.username,
 				IsAdmin:  info.isAdmin,
+				Muted:    state.Muted,
+				Deafened: state.Deafened,
 			})
 		}
 		result[ch.ID] = members
@@ -245,6 +249,7 @@ func (h *Handler) buildVoiceChannelMembersPayload(ctx context.Context, channelID
 	if err != nil {
 		return nil, err
 	}
+	states, _ := h.voice.GetUserStates(ctx, ids)
 	userByID := make(map[string]struct {
 		username string
 		isAdmin  bool
@@ -262,10 +267,13 @@ func (h *Handler) buildVoiceChannelMembersPayload(ctx context.Context, channelID
 		if !ok {
 			continue
 		}
+		state := states[uid]
 		members = append(members, api.VoiceMember{
 			Id:       uid,
 			Username: info.username,
 			IsAdmin:  info.isAdmin,
+			Muted:    state.Muted,
+			Deafened: state.Deafened,
 		})
 	}
 

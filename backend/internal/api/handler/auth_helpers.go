@@ -111,3 +111,32 @@ func (h *Handler) setAuthCookies(c *fiber.Ctx, response authservice.TokenRespons
 		})
 	}
 }
+
+func (h *Handler) clearAuthCookies(c *fiber.Ctx) {
+	oauthCfg := h.cfg.OAuthConfig()
+	domain := parseDomain(oauthCfg.RedirectBase)
+	secure := strings.HasPrefix(strings.ToLower(oauthCfg.RedirectBase), "https")
+	sameSite := "Lax"
+
+	clearCookie := func(name string, withDomain bool) {
+		cookie := &fiber.Cookie{
+			Name:     name,
+			Value:    "",
+			HTTPOnly: true,
+			Secure:   secure,
+			SameSite: sameSite,
+			Path:     "/",
+			MaxAge:   -1,
+		}
+		if withDomain && domain != "" {
+			cookie.Domain = domain
+		}
+		c.Cookie(cookie)
+	}
+
+	// Clear both host-only and domain-scoped cookies to avoid redirect loops in dev.
+	clearCookie("access_token", false)
+	clearCookie("refresh_token", false)
+	clearCookie("access_token", true)
+	clearCookie("refresh_token", true)
+}

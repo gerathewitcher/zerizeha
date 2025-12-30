@@ -148,6 +148,7 @@ func (a *App) InitAuthHandler(ctx context.Context) error {
 		a.serviceProvider.JanusService(ctx),
 	)
 	api.RegisterHandlers(a.fiberApp, handler)
+	a.fiberApp.Post("/api/voice/state", handler.UpdateVoiceState)
 	return nil
 }
 

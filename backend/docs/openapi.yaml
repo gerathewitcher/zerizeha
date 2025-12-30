@@ -261,6 +261,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorMap'
+  /api/auth/logout:
+    post:
+      operationId: Logout
+      summary: logout
+      description: clears auth cookies
+      tags:
+        - Auth
+      responses:
+        '204':
+          description: No Content
 
   /api/me:
     get:
@@ -606,6 +616,42 @@ paths:
       responses:
         '204':
           description: No Content
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+
+  /api/voice/state:
+    post:
+      operationId: UpdateVoiceState
+      summary: update voice state (muted/deafened)
+      tags:
+        - Voice
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VoiceStateUpdate'
+      responses:
+        '204':
+          description: No Content
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
         '401':
           description: Unauthorized
           content:
@@ -1388,7 +1434,7 @@ components:
 
     VoiceMember:
       type: object
-      required: [id, username, is_admin]
+      required: [id, username, is_admin, muted, deafened]
       properties:
         id:
           type: string
@@ -1396,9 +1442,23 @@ components:
           type: string
         is_admin:
           type: boolean
+        muted:
+          type: boolean
+        deafened:
+          type: boolean
         avatar_url:
           type: string
           nullable: true
+      additionalProperties: false
+
+    VoiceStateUpdate:
+      type: object
+      required: [muted, deafened]
+      properties:
+        muted:
+          type: boolean
+        deafened:
+          type: boolean
       additionalProperties: false
 
     WebRTCPublisher:
