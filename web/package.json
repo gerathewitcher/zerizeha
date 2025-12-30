@@ -14,6 +14,7 @@
     "electron:build": "npm run build && electron-builder --config electron-builder.json"
   },
   "dependencies": {
+    "@swc/helpers": "^0.5.18",
     "electron": "^31.3.0",
     "next": "16.1.0",
     "react": "19.2.3",
