@@ -13,6 +13,9 @@ declare global {
           { id: string; name: string; thumbnail?: string | null }[]
         >;
       };
+      window?: {
+        setFullscreen: (enabled: boolean) => Promise<boolean> | boolean;
+      };
     };
   }
 }

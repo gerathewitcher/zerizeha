@@ -13,4 +13,7 @@ contextBridge.exposeInMainWorld("electron", {
   desktop: {
     getSources: () => ipcRenderer.invoke("desktop-capturer:get-sources"),
   },
+  window: {
+    setFullscreen: (enabled) => ipcRenderer.invoke("window:set-fullscreen", enabled),
+  },
 });

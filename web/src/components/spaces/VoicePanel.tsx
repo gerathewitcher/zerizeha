@@ -101,6 +101,7 @@ export default function VoicePanel({
         local: boolean;
       }
   >(null);
+  const fullscreenRef = useRef<HTMLDivElement | null>(null);
 
   const screenShareList = useMemo(() => {
     const list = [...screenShares];
@@ -140,11 +141,26 @@ export default function VoicePanel({
 
   useEffect(() => {
     if (!fullscreen) return;
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement) {
+        setFullscreen(null);
+      }
+    };
     const onKeyDown = (ev: KeyboardEvent) => {
       if (ev.key === "Escape") setFullscreen(null);
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      if (typeof document !== "undefined" && document.fullscreenElement) {
+        void document.exitFullscreen().catch(() => {});
+      }
+      if (window.electron?.window?.setFullscreen) {
+        void window.electron.window.setFullscreen(false);
+      }
+    };
   }, [fullscreen]);
 
   useEffect(() => {
@@ -290,6 +306,15 @@ export default function VoicePanel({
 	                    ev.preventDefault();
 	                    ev.stopPropagation();
 	                    if (!screenStream) return;
+	                    if (typeof document !== "undefined") {
+	                      const root = document.documentElement;
+	                      if (!document.fullscreenElement && root?.requestFullscreen) {
+	                        void root.requestFullscreen().catch(() => {});
+	                      }
+	                    }
+	                    if (window.electron?.window?.setFullscreen) {
+	                      void window.electron.window.setFullscreen(true);
+	                    }
 	                    setFullscreen({ userId: user.id, feedId, local: isLocalShare });
 	                  };
 
@@ -853,18 +878,21 @@ export default function VoicePanel({
       </aside>
       {fullscreen ? (
         <div
+          ref={fullscreenRef}
           className="fixed inset-0 z-[60] flex flex-col bg-black/90"
           onClick={() => setFullscreen(null)}
           role="dialog"
           aria-label="Просмотр трансляции"
         >
-          <div className="flex items-center justify-between gap-3 px-4 py-3 text-white">
+          <div className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between gap-3 px-6 py-4 text-white">
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold">
-                Трансляция экрана
-              </div>
-              <div className="truncate text-xs text-white/70">
-                {fullscreen.userId}
+                {`Трансляция ${(() => {
+                  const name =
+                    users.find((u) => u.id === fullscreen.userId)?.username ??
+                    fullscreen.userId;
+                  return name;
+                })()}`}
               </div>
             </div>
             <button
@@ -880,7 +908,7 @@ export default function VoicePanel({
           </div>
 
           <div
-            className="relative flex-1 px-4 pb-4"
+            className="relative flex-1 bg-black px-20 pb-24 pt-8"
             onClick={(ev) => ev.stopPropagation()}
           >
             {(() => {
@@ -901,18 +929,171 @@ export default function VoicePanel({
                 );
               }
               return (
-                <div className="relative h-full w-full">
+                <div className="relative flex h-full w-full items-start justify-center px-20 pb-20 pt-12">
                   <StreamVideo
                     stream={stream}
                     muted
-                    className="h-full w-full rounded-2xl object-contain"
+                    className="h-full w-full rounded-2xl bg-black object-contain"
                   />
-                  <div className="pointer-events-none absolute bottom-3 left-3 rounded-xl bg-black/45 px-3 py-1.5 text-xs text-white">
-                    {username}
-                  </div>
                 </div>
               );
             })()}
+          </div>
+          <div
+            className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-2xl bg-black/60 px-3 py-2 backdrop-blur"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            <Tooltip label={micMuted ? "Включить микрофон" : "Выключить микрофон"}>
+              <button
+                type="button"
+                onClick={onToggleMute}
+                disabled={!controlsEnabled || !onToggleMute}
+                className={`flex h-11 w-11 items-center justify-center rounded-xl border text-xs transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                  micMuted
+                    ? "border-(--danger) text-(--danger)"
+                    : "border-white/20 text-white/80 hover:text-white"
+                }`}
+                aria-label="Микрофон"
+              >
+                <svg
+                  className="h-6 w-6"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M8 3.2C8.9 3.2 9.6 3.9 9.6 4.8V8.2C9.6 9.1 8.9 9.8 8 9.8C7.1 9.8 6.4 9.1 6.4 8.2V4.8C6.4 3.9 7.1 3.2 8 3.2Z"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                  />
+                  <path
+                    d="M11 7.4V8.3C11 10.1 9.7 11.6 8 11.6C6.3 11.6 5 10.1 5 8.3V7.4"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                    strokeLinecap="round"
+                  />
+                  <path d="M8 11.6V13.2" stroke="currentColor" strokeWidth="1.2" />
+                  <path d="M6.3 13.2H9.7" stroke="currentColor" strokeWidth="1.2" />
+                  {micMuted ? (
+                    <path
+                      d="M4 4L12 12"
+                      stroke="currentColor"
+                      strokeWidth="1.4"
+                      strokeLinecap="round"
+                    />
+                  ) : null}
+                </svg>
+              </button>
+            </Tooltip>
+
+            <Tooltip label={incomingMuted ? "Включить звук" : "Выключить звук"}>
+              <button
+                type="button"
+                onClick={onToggleIncomingMute}
+                disabled={!controlsEnabled || !onToggleIncomingMute}
+                className={`flex h-11 w-11 items-center justify-center rounded-xl border text-xs transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                  incomingMuted
+                    ? "border-(--danger) text-(--danger)"
+                    : "border-white/20 text-white/80 hover:text-white"
+                }`}
+                aria-label="Входящий звук"
+              >
+                <svg
+                  className="h-6 w-6"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M6 4.5L4.2 6H3V10H4.2L6 11.5V4.5Z"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M11 5.5C12 6.5 12 9.5 11 10.5"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                    strokeLinecap="round"
+                  />
+                  {incomingMuted ? (
+                    <path
+                      d="M3 3L13 13"
+                      stroke="currentColor"
+                      strokeWidth="1.2"
+                      strokeLinecap="round"
+                    />
+                  ) : null}
+                </svg>
+              </button>
+            </Tooltip>
+
+            <Tooltip
+              label={screenShareEnabled ? "Остановить экран" : "Показать экран"}
+            >
+              <button
+                type="button"
+                onClick={onToggleScreenShare}
+                disabled={!controlsEnabled || !canToggleScreen}
+                className={`flex h-11 w-11 items-center justify-center rounded-xl border text-xs transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                  screenShareEnabled
+                    ? "border-(--accent) text-(--accent)"
+                    : "border-white/20 text-white/80 hover:text-white"
+                }`}
+                aria-label="Показ экрана"
+              >
+                <svg
+                  className="h-6 w-6"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
+                >
+                  <rect
+                    x="2.5"
+                    y="3.5"
+                    width="11"
+                    height="8"
+                    rx="1.5"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                  />
+                  <path
+                    d="M6 13H10"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+            </Tooltip>
+
+            <Tooltip label="Отключиться">
+              <button
+                type="button"
+                onClick={onLeave}
+                disabled={!onLeave}
+                className="flex h-11 w-11 items-center justify-center rounded-xl border border-(--danger) text-xs text-(--danger) transition hover:border-red-500/80 disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Отключиться"
+              >
+                <svg
+                  className="h-6 w-9"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
+                >
+                  <g transform="translate(-0.35 0) rotate(134 8 8)">
+                    <path
+                      d="M5.6 2.2L6.6 3.2C7 3.6 7 4.2 6.6 4.6L6 5.2C6.7 6.7 7.9 7.9 9.4 8.6L10 8C10.4 7.6 11 7.6 11.4 8L12.4 9C12.8 9.4 12.8 10 12.4 10.4L11.7 11.1C11.3 11.5 10.8 11.7 10.3 11.6C8.6 11.2 7 10.3 5.7 9C4.4 7.7 3.5 6.1 3.1 4.4C3 3.9 3.2 3.4 3.6 3L4.3 2.3C4.8 1.8 5.3 1.8 5.6 2.2Z"
+                      fill="currentColor"
+                    />
+                  </g>
+                </svg>
+              </button>
+            </Tooltip>
           </div>
         </div>
       ) : null}

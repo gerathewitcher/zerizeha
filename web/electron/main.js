@@ -280,6 +280,12 @@ ipcMain.handle("desktop-capturer:get-sources", async () => {
   }));
 });
 
+ipcMain.handle("window:set-fullscreen", (_event, enabled) => {
+  if (!mainWindow) return false;
+  mainWindow.setFullScreen(Boolean(enabled));
+  return mainWindow.isFullScreen();
+});
+
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     // Keep app alive in tray.
