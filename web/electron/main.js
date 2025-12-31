@@ -20,6 +20,9 @@ const iconBasePath = path.join(__dirname, "assets");
 const iconPath = process.platform === "win32"
   ? path.join(iconBasePath, "app.ico")
   : path.join(iconBasePath, "app.png");
+const windowIcon = fs.existsSync(iconPath)
+  ? nativeImage.createFromPath(iconPath)
+  : undefined;
 const trayPath = process.platform === "win32"
   ? path.join(iconBasePath, "tray.ico")
   : path.join(iconBasePath, "tray.png");
@@ -128,12 +131,15 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 720,
-    icon: fs.existsSync(iconPath) ? iconPath : undefined,
+    icon: windowIcon,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
     },
   });
+  if (windowIcon && typeof mainWindow.setIcon === "function") {
+    mainWindow.setIcon(windowIcon);
+  }
 
   if (isDev) {
     mainWindow.loadURL(startUrl);
