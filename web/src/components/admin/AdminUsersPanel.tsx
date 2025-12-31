@@ -103,10 +103,13 @@ export default function AdminUsersPanel({
     return () => controller.abort();
   }, [handleUnauthenticated, handleUnauthorized, state.status]);
 
+  const meHttpStatus =
+    meState.state.status === "error" ? meState.state.httpStatus : undefined;
+
   useEffect(() => {
     if (meState.state.status === "loading") return;
     if (meState.state.status === "error") {
-      if (meState.state.httpStatus === 401) {
+      if (meHttpStatus === 401) {
         handleUnauthenticated();
         return;
       }
@@ -123,7 +126,7 @@ export default function AdminUsersPanel({
     handleUnauthenticated,
     handleUnauthorized,
     load,
-    meState.state.httpStatus,
+    meHttpStatus,
     meState.state.me?.is_admin,
     meState.state.status,
   ]);
