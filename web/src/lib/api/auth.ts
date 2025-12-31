@@ -1,4 +1,4 @@
-import { refresh } from "@/lib/api/generated/zerizeha-components";
+import { refresh, updateMe } from "@/lib/api/generated/zerizeha-components";
 import { getBaseUrl } from "@/lib/api/generated/zerizeha-fetcher";
 import type { RefreshVariables } from "@/lib/api/generated/zerizeha-components";
 import type { TokenResponse } from "@/lib/api/generated/zerizeha-schemas";
@@ -30,6 +30,10 @@ export async function logout(): Promise<void> {
     method: "POST",
     credentials: "include",
   });
+}
+
+export async function updateUsername(username: string): Promise<void> {
+  await updateMe({ body: { username } });
 }
 
 export async function refreshToken(

@@ -12,7 +12,7 @@ import { logout } from "@/lib/api/auth";
 import { fetchChannelsBySpaceId } from "@/lib/api/channels";
 import { getHttpStatus } from "@/lib/api/errors";
 import { redirectIfAuthOrOnboardingError } from "@/lib/api/redirects";
-import { fetchSpaceById, fetchSpaces } from "@/lib/api/spaces";
+import { fetchSpaceById, fetchSpaces, updateSpaceName } from "@/lib/api/spaces";
 import { useMe } from "@/lib/me";
 import type { Channel, Space } from "@/lib/api/generated/zerizeha-schemas";
 
@@ -37,6 +37,13 @@ export default function SpaceSettingsPage() {
   const [state, setState] = useState<ViewState>({ status: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [spaceNameDraft, setSpaceNameDraft] = useState("");
+  const [spaceNameError, setSpaceNameError] = useState<string | null>(null);
+  const [spaceNameSaving, setSpaceNameSaving] = useState(false);
+  const canManageSpace =
+    state.status === "ready" &&
+    meState.state.status === "ready" &&
+    (meState.state.me.is_admin || meState.state.me.id === state.space.author_id);
 
   useEffect(() => {
     if (!spaceId) return;
@@ -71,6 +78,40 @@ export default function SpaceSettingsPage() {
 
     return () => controller.abort();
   }, [spaceId, reloadKey]);
+
+  useEffect(() => {
+    if (state.status !== "ready") return;
+    setSpaceNameDraft(state.space.name);
+    setSpaceNameError(null);
+  }, [state]);
+
+  const handleSpaceNameSave = useCallback(async () => {
+    if (spaceNameSaving) return;
+    const nextName = spaceNameDraft.trim();
+    if (!nextName) {
+      setSpaceNameError("Название не может быть пустым.");
+      return;
+    }
+    setSpaceNameSaving(true);
+    try {
+      await updateSpaceName(spaceId, nextName);
+      setState((prev) => {
+        if (prev.status !== "ready") return prev;
+        return {
+          ...prev,
+          space: { ...prev.space, name: nextName },
+          spaces: prev.spaces.map((space) =>
+            space.id === prev.space.id ? { ...space, name: nextName } : space,
+          ),
+        };
+      });
+      setSpaceNameError(null);
+    } catch {
+      setSpaceNameError("Не удалось сохранить.");
+    } finally {
+      setSpaceNameSaving(false);
+    }
+  }, [spaceId, spaceNameDraft, spaceNameSaving]);
 
   const railSpaces = useMemo(() => {
     if (state.status !== "ready") return [];
@@ -133,6 +174,16 @@ export default function SpaceSettingsPage() {
             textChannels={textChannels}
             voiceChannels={voiceChannels}
             onChannelsChanged={() => setReloadKey((v) => v + 1)}
+            canManageChannels={
+              meState.state.status === "ready" &&
+              (meState.state.me.is_admin ||
+                meState.state.me.id === state.space.author_id)
+            }
+            canManageSpace={
+              meState.state.status === "ready" &&
+              (meState.state.me.is_admin ||
+                meState.state.me.id === state.space.author_id)
+            }
           />
         ) : null}
 
@@ -176,6 +227,18 @@ export default function SpaceSettingsPage() {
           </header>
 
           <div className="flex-1 overflow-y-auto px-6 py-6">
+            {state.status === "ready" &&
+            meState.state.status === "ready" &&
+            !canManageSpace ? (
+              <ErrorState
+                title="Нет доступа"
+                message="Настройки пространства доступны только создателю и администраторам."
+                actionLabel="Вернуться в пространство"
+                onAction={() =>
+                  window.location.assign(`/spaces/${spaceId ?? ""}`)
+                }
+              />
+            ) : (
             <div className="max-w-3xl space-y-10">
               <section>
                 <h2 className="text-lg font-semibold">Основное</h2>
@@ -194,19 +257,31 @@ export default function SpaceSettingsPage() {
                         </label>
                         <input
                           className="mt-3 w-full rounded-xl border border-(--border) bg-(--bg-2) px-4 py-3 text-sm text-(--text) outline-none transition focus:border-(--accent)"
-                          defaultValue={
-                            state.status === "ready"
-                              ? state.space.name
-                              : "Zerizeha Studio"
-                          }
+                          value={spaceNameDraft}
+                          onChange={(event) => {
+                            setSpaceNameDraft(event.target.value);
+                            setSpaceNameError(null);
+                          }}
                         />
+                        {spaceNameError ? (
+                          <p className="mt-2 text-xs text-(--danger)">{spaceNameError}</p>
+                        ) : null}
                       </div>
                       <div className="flex flex-wrap gap-3">
                         <button className="rounded-xl border border-(--border) px-4 py-2 text-sm text-(--muted) transition hover:text-(--accent)">
                           Загрузить аватар
                         </button>
-                        <button className="rounded-xl bg-(--accent) px-4 py-2 text-sm font-medium text-black transition hover:bg-(--accent-2)">
-                          Сохранить
+                        <button
+                          className="rounded-xl bg-(--accent) px-4 py-2 text-sm font-medium text-black transition hover:bg-(--accent-2) disabled:cursor-not-allowed disabled:opacity-70"
+                          onClick={handleSpaceNameSave}
+                          disabled={
+                            spaceNameSaving ||
+                            !spaceNameDraft.trim() ||
+                            (state.status === "ready" &&
+                              spaceNameDraft.trim() === state.space.name)
+                          }
+                        >
+                          {spaceNameSaving ? "Сохранение…" : "Сохранить"}
                         </button>
                       </div>
                     </div>
@@ -233,6 +308,7 @@ export default function SpaceSettingsPage() {
                 />
               )}
             </div>
+            )}
           </div>
         </section>
       </div>

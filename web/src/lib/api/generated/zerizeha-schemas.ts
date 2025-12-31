@@ -50,6 +50,10 @@ export type User = {
   created_at?: string;
 };
 
+export type MeToUpdate = {
+  username: string;
+};
+
 export type Space = {
   id: string;
   author_id: string;

@@ -407,6 +407,17 @@ export default function SpacePage() {
               onVolumeChange={voiceSession.setVolume}
               onChannelsChanged={() => setReloadKey((v) => v + 1)}
               mutedUserIds={mutedUserIds}
+              onToggleUserMute={voiceSession.toggleUserMute}
+              canManageChannels={
+                meState.state.status === "ready" &&
+                (meState.state.me.is_admin ||
+                  meState.state.me.id === state.space.author_id)
+              }
+              canManageSpace={
+                meState.state.status === "ready" &&
+                (meState.state.me.is_admin ||
+                  meState.state.me.id === state.space.author_id)
+              }
             />
             {chatOpen && !voicePanelExpanded ? (
               <ChatPanel

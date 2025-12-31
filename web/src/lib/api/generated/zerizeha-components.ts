@@ -291,6 +291,21 @@ export const refresh = (variables: RefreshVariables, signal?: AbortSignal) =>
     {}
   >({ url: "/api/auth/refresh", method: "post", ...variables, signal });
 
+export type LogoutError = Fetcher.ErrorWrapper<undefined>;
+
+export type LogoutVariables = ZerizehaFetcherExtraProps;
+
+/**
+ * clears auth cookies
+ */
+export const logout = (variables: LogoutVariables, signal?: AbortSignal) =>
+  zerizehaFetch<undefined, LogoutError, undefined, {}, {}, {}>({
+    url: "/api/auth/logout",
+    method: "post",
+    ...variables,
+    signal,
+  });
+
 export type GetMeError = Fetcher.ErrorWrapper<
   | {
       status: 401;
@@ -308,6 +323,33 @@ export const getMe = (variables: GetMeVariables, signal?: AbortSignal) =>
   zerizehaFetch<Schemas.User, GetMeError, undefined, {}, {}, {}>({
     url: "/api/me",
     method: "get",
+    ...variables,
+    signal,
+  });
+
+export type UpdateMeError = Fetcher.ErrorWrapper<
+  | {
+      status: 400;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type UpdateMeVariables = {
+  body: Schemas.MeToUpdate;
+} & ZerizehaFetcherExtraProps;
+
+export const updateMe = (variables: UpdateMeVariables, signal?: AbortSignal) =>
+  zerizehaFetch<Schemas.User, UpdateMeError, Schemas.MeToUpdate, {}, {}, {}>({
+    url: "/api/me",
+    method: "patch",
     ...variables,
     signal,
   });
@@ -1153,8 +1195,9 @@ export const operationsByTag = {
     yandexLogin,
     yandexCallback,
     refresh,
+    logout,
   },
-  users: { getMe, searchUsers },
+  users: { getMe, updateMe, searchUsers },
   admin: { listAdminUsers, updateAdminUser },
   spaces: {
     listSpaces,

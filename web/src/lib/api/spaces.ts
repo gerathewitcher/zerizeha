@@ -2,6 +2,7 @@ import {
   createSpace,
   getSpaceByID,
   listSpaces,
+  updateSpace,
   type ListSpacesResponse,
 } from "@/lib/api/generated/zerizeha-components";
 import type { Space } from "@/lib/api/generated/zerizeha-schemas";
@@ -25,4 +26,12 @@ export async function createSpaceByName(
 ): Promise<string> {
   const res = await createSpace({ body: { name } }, signal);
   return res.id;
+}
+
+export async function updateSpaceName(
+  spaceId: string,
+  name: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  await updateSpace({ pathParams: { id: spaceId }, body: { name } }, signal);
 }

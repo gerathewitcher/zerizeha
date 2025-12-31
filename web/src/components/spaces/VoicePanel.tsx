@@ -104,9 +104,7 @@ export default function VoicePanel({
   controlsEnabled = true,
 }: VoicePanelProps) {
   const canToggleScreen = !!roomName && !!onToggleScreenShare;
-  const [menu, setMenu] = useState<{ userId: string; x: number; y: number } | null>(
-    null,
-  );
+  const [volumeUserId, setVolumeUserId] = useState<string | null>(null);
   const [pendingWatchFeedId, setPendingWatchFeedId] = useState<string | null>(null);
   const [watchErrorFeedId, setWatchErrorFeedId] = useState<string | null>(null);
   const [fullscreen, setFullscreen] = useState<
@@ -142,8 +140,8 @@ export default function VoicePanel({
   }, [screenShares.length, localScreenStream, selectedScreenFeedId, onLeaveScreen]);
 
   useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
+    if (!volumeUserId) return;
+    const close = () => setVolumeUserId(null);
     window.addEventListener("click", close);
     window.addEventListener("keydown", close);
     window.addEventListener("scroll", close, true);
@@ -152,7 +150,7 @@ export default function VoicePanel({
       window.removeEventListener("keydown", close);
       window.removeEventListener("scroll", close, true);
     };
-  }, [menu]);
+  }, [volumeUserId]);
 
   useEffect(() => {
     if (!fullscreen) return;
@@ -324,11 +322,6 @@ export default function VoicePanel({
                           : "border-(--border)"
                       } ${isSingle ? "mx-auto w-full max-w-[720px]" : ""}`}
                       style={{ aspectRatio: "4 / 3" }}
-	                      onContextMenu={(ev) => {
-	                        ev.preventDefault();
-	                        if (user.id === selfUserId) return;
-	                        setMenu({ userId: user.id, x: ev.clientX, y: ev.clientY });
-	                      }}
 	                    >
 	                      {showScreen && screenStream ? (
 	                        <StreamVideo
@@ -432,63 +425,127 @@ export default function VoicePanel({
                       <div className="absolute inset-x-0 bottom-0 z-20 bg-black/45 px-4 py-3 text-sm text-white">
                         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
                           <span className="truncate">{user.username}</span>
-                          {showUserMute ? (
-                            <button
-                              type="button"
-                              onClick={(ev) => {
-                                ev.stopPropagation();
-                                onToggleUserMute?.(user.id);
-                              }}
-                              disabled={!controlsEnabled}
-                              className={`flex h-7 w-7 items-center justify-center rounded-full border text-xs disabled:cursor-not-allowed disabled:opacity-60 ${
-                                isMutedLocally
-                                  ? "border-red-500/50 bg-red-500/20 text-red-200"
-                                  : "border-white/20 bg-black/45 text-white backdrop-blur hover:bg-black/55"
-                              }`}
-                              title={isMutedLocally ? "Снять заглушение" : "Заглушить"}
-                            >
-                              <svg
-                                className="h-3.5 w-3.5"
-                                viewBox="0 0 16 16"
-                                fill="none"
-                                xmlns="http://www.w3.org/2000/svg"
-                                aria-hidden="true"
+                          <div className="relative flex items-center gap-2">
+                            {showUserMute ? (
+                              <Tooltip
+                                label={isMutedLocally ? "Снять заглушение" : "Заглушить"}
                               >
-                                <path
-                                  d="M5 5.5V4.5C5 3.7 5.7 3 6.5 3C7.3 3 8 3.7 8 4.5V5.5"
-                                  stroke="currentColor"
-                                  strokeWidth="1.2"
-                                  strokeLinecap="round"
+                                <button
+                                  type="button"
+                                  onClick={(ev) => {
+                                    ev.stopPropagation();
+                                    onToggleUserMute?.(user.id);
+                                  }}
+                                  disabled={!controlsEnabled}
+                                  className={`flex h-9 w-9 items-center justify-center rounded-full border text-xs disabled:cursor-not-allowed disabled:opacity-60 ${
+                                    isMutedLocally
+                                      ? "border-red-500/50 bg-red-500/20 text-red-200"
+                                      : "border-white/20 bg-black/45 text-white backdrop-blur hover:bg-black/55"
+                                  }`}
+                                  aria-label={isMutedLocally ? "Снять заглушение" : "Заглушить"}
+                                >
+                                  <svg
+                                    className="h-4 w-4"
+                                    viewBox="0 0 16 16"
+                                    fill="none"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    aria-hidden="true"
+                                  >
+                                    <path
+                                      d="M8 3.2C8.9 3.2 9.6 3.9 9.6 4.8V8.2C9.6 9.1 8.9 9.8 8 9.8C7.1 9.8 6.4 9.1 6.4 8.2V4.8C6.4 3.9 7.1 3.2 8 3.2Z"
+                                      stroke="currentColor"
+                                      strokeWidth="1.2"
+                                    />
+                                    <path
+                                      d="M11 7.4V8.3C11 10.1 9.7 11.6 8 11.6C6.3 11.6 5 10.1 5 8.3V7.4"
+                                      stroke="currentColor"
+                                      strokeWidth="1.2"
+                                      strokeLinecap="round"
+                                    />
+                                    <path
+                                      d="M6.5 11.6V13"
+                                      stroke="currentColor"
+                                      strokeWidth="1.2"
+                                      strokeLinecap="round"
+                                    />
+                                    <path
+                                      d="M5 13H11"
+                                      stroke="currentColor"
+                                      strokeWidth="1.2"
+                                      strokeLinecap="round"
+                                    />
+                                    {isMutedLocally ? (
+                                      <path
+                                        d="M2 2L12 12"
+                                        stroke="currentColor"
+                                        strokeWidth="1.2"
+                                        strokeLinecap="round"
+                                      />
+                                    ) : null}
+                                  </svg>
+                                </button>
+                              </Tooltip>
+                            ) : null}
+                            {!isSelf && onVolumeChange ? (
+                              <Tooltip label="Громкость">
+                                <button
+                                  type="button"
+                                  onClick={(ev) => {
+                                    ev.stopPropagation();
+                                    setVolumeUserId(user.id);
+                                  }}
+                                  disabled={!controlsEnabled}
+                                  className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/45 text-white backdrop-blur transition hover:bg-black/55 disabled:cursor-not-allowed disabled:opacity-60"
+                                  aria-label="Громкость"
+                                >
+                                  <svg
+                                    className="h-4 w-4"
+                                    viewBox="0 0 16 16"
+                                    fill="none"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    aria-hidden="true"
+                                  >
+                                    <path
+                                      d="M3 6.5H5.5L8.5 4V12L5.5 9.5H3V6.5Z"
+                                      stroke="currentColor"
+                                      strokeWidth="1.2"
+                                      strokeLinejoin="round"
+                                    />
+                                    <path
+                                      d="M11 6.2C11.7 7 11.7 9 11 9.8"
+                                      stroke="currentColor"
+                                      strokeWidth="1.2"
+                                      strokeLinecap="round"
+                                    />
+                                  </svg>
+                                </button>
+                              </Tooltip>
+                            ) : null}
+                            {volumeUserId === user.id ? (
+                              <div
+                                className="absolute bottom-full right-0 z-50 mb-2 w-44 rounded-xl border border-(--border) bg-(--panel) p-3 text-xs shadow-xl"
+                                onClick={(ev) => ev.stopPropagation()}
+                              >
+                                <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-(--subtle)">
+                                  Громкость
+                                </p>
+                                <input
+                                  type="range"
+                                  min={0}
+                                  max={1}
+                                  step={0.05}
+                                  value={volumeByUserId[user.id] ?? 1}
+                                  onChange={(ev) =>
+                                    onVolumeChange?.(user.id, Number(ev.currentTarget.value))
+                                  }
+                                  className="w-full accent-(--accent)"
                                 />
-                                <path
-                                  d="M4 6.5C4 7.9 5.1 9 6.5 9C7.9 9 9 7.9 9 6.5V6"
-                                  stroke="currentColor"
-                                  strokeWidth="1.2"
-                                  strokeLinecap="round"
-                                />
-                                <path
-                                  d="M3 12H10"
-                                  stroke="currentColor"
-                                  strokeWidth="1.2"
-                                  strokeLinecap="round"
-                                />
-                                <path
-                                  d="M6.5 9V12"
-                                  stroke="currentColor"
-                                  strokeWidth="1.2"
-                                  strokeLinecap="round"
-                                />
-                                <path
-                                  d="M2 2L12 12"
-                                  stroke="currentColor"
-                                  strokeWidth="1.2"
-                                  strokeLinecap="round"
-                                />
-                              </svg>
-                            </button>
-                          ) : (
-                            <span className="h-7 w-7" aria-hidden="true" />
-                          )}
+                                <div className="mt-2 text-[11px] text-(--muted)">
+                                  {Math.round((volumeByUserId[user.id] ?? 1) * 100)}%
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
                           <span className="justify-self-end text-xs">
                             {user.is_admin ? "★" : ""}
                           </span>
@@ -859,32 +916,6 @@ export default function VoicePanel({
           </div>
         </div>
       </aside>
-      {menu ? (
-        <div
-          className="fixed z-50 w-56 rounded-xl border border-(--border) bg-(--panel) p-3 text-xs shadow-xl"
-          style={{ left: menu.x + 8, top: menu.y + 8 }}
-          onClick={(ev) => ev.stopPropagation()}
-        >
-          <p className="mb-2 text-[11px] uppercase tracking-[0.2em] text-(--subtle)">
-            Громкость
-          </p>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={volumeByUserId[menu.userId] ?? 1}
-            onChange={(ev) =>
-              onVolumeChange?.(menu.userId, Number(ev.currentTarget.value))
-            }
-            className="w-full accent-(--accent)"
-          />
-          <div className="mt-2 text-[11px] text-(--muted)">
-            {Math.round((volumeByUserId[menu.userId] ?? 1) * 100)}%
-          </div>
-        </div>
-      ) : null}
-
       {fullscreen ? (
         <div
           className="fixed inset-0 z-[60] flex flex-col bg-black/90"

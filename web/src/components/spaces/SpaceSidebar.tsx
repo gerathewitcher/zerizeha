@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import CreateChannelModal from "@/components/spaces/CreateChannelModal";
 import Tooltip from "@/components/ui/Tooltip";
 import { useMe } from "@/lib/me";
+import { deleteChannelById, updateChannelName } from "@/lib/api/channels";
 import type { VoiceMember } from "@/lib/api/generated/zerizeha-schemas";
 
 type ChannelItem = {
@@ -29,6 +30,9 @@ type SpaceSidebarProps = {
   volumeByUserId?: Record<string, number>;
   onVolumeChange?: (userId: string, volume: number) => void;
   mutedUserIds?: Record<string, boolean>;
+  onToggleUserMute?: (userId: string) => void;
+  canManageChannels?: boolean;
+  canManageSpace?: boolean;
   onChannelsChanged?: () => void;
 };
 
@@ -49,11 +53,21 @@ export default function SpaceSidebar({
   volumeByUserId = {},
   onVolumeChange,
   mutedUserIds = {},
+  onToggleUserMute,
+  canManageChannels = false,
+  canManageSpace = false,
   onChannelsChanged,
 }: SpaceSidebarProps) {
   const [createOpen, setCreateOpen] = useState(false);
   const [createType, setCreateType] = useState<"text" | "voice">("text");
   const [menuUserId, setMenuUserId] = useState<string | null>(null);
+  const [channelMenuId, setChannelMenuId] = useState<string | null>(null);
+  const [editingChannelId, setEditingChannelId] = useState<string | null>(null);
+  const [channelNameDraft, setChannelNameDraft] = useState("");
+  const [channelError, setChannelError] = useState<string | null>(null);
+  const [channelSaving, setChannelSaving] = useState(false);
+  const [deleteChannelId, setDeleteChannelId] = useState<string | null>(null);
+  const [channelDeleting, setChannelDeleting] = useState(false);
   const { state } = useMe();
   const me = state.status === "ready" ? state.me : null;
 
@@ -70,6 +84,55 @@ export default function SpaceSidebar({
       window.removeEventListener("scroll", close, true);
     };
   }, [menuUserId]);
+
+  useEffect(() => {
+    if (!channelMenuId) return;
+    const close = () => setChannelMenuId(null);
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [channelMenuId]);
+
+  const handleChannelSave = async (channelId: string) => {
+    if (channelSaving) return;
+    const nextName = channelNameDraft.trim();
+    if (!nextName) {
+      setChannelError("Название не может быть пустым.");
+      return;
+    }
+    setChannelSaving(true);
+    try {
+      await updateChannelName(channelId, nextName);
+      setEditingChannelId(null);
+      onChannelsChanged?.();
+    } catch {
+      setChannelError("Не удалось сохранить.");
+    } finally {
+      setChannelSaving(false);
+    }
+  };
+
+  const handleChannelDelete = async (channelId: string) => {
+    if (channelDeleting) return;
+    setChannelDeleting(true);
+    try {
+      if (activeVoiceChannelId === channelId) {
+        onLeaveVoiceChannel?.();
+      }
+      await deleteChannelById(channelId);
+      setDeleteChannelId(null);
+      onChannelsChanged?.();
+    } catch {
+      setChannelError("Не удалось удалить.");
+    } finally {
+      setChannelDeleting(false);
+    }
+  };
 
   return (
     <>
@@ -97,12 +160,14 @@ export default function SpaceSidebar({
             <h2 className="mt-1 font-(--font-display) text-lg">{spaceName}</h2>
           </div>
           <div className="flex items-center gap-2">
-            <Link
-              href={`/spaces/${spaceId}/settings`}
-              className="rounded-full border border-(--border) px-2 py-1 text-xs text-(--muted) transition hover:text-(--accent)"
-            >
-              Настройки
-            </Link>
+            {canManageSpace ? (
+              <Link
+                href={`/spaces/${spaceId}/settings`}
+                className="rounded-full border border-(--border) px-2 py-1 text-xs text-(--muted) transition hover:text-(--accent)"
+              >
+                Настройки
+              </Link>
+            ) : null}
             {mobileOpen ? (
               <button
                 type="button"
@@ -205,13 +270,110 @@ export default function SpaceSidebar({
                     onClick={() => onSelectVoiceChannel?.(channel.id)}
                   >
                     <span className="text-(--subtle)">🔊</span>
-                    <span className="truncate">{channel.name}</span>
+                    {editingChannelId === channel.id ? (
+                      <input
+                        value={channelNameDraft}
+                        onChange={(event) => {
+                          setChannelNameDraft(event.target.value);
+                          setChannelError(null);
+                        }}
+                        onClick={(ev) => ev.stopPropagation()}
+                        onKeyDown={(ev) => {
+                          if (ev.key === "Enter") {
+                            ev.preventDefault();
+                            handleChannelSave(channel.id);
+                          } else if (ev.key === "Escape") {
+                            setEditingChannelId(null);
+                            setChannelError(null);
+                            setChannelNameDraft(channel.name);
+                          }
+                        }}
+                        onBlur={() => {
+                          if (channelSaving) return;
+                          setEditingChannelId(null);
+                          setChannelError(null);
+                          setChannelNameDraft(channel.name);
+                        }}
+                        autoFocus
+                        className="w-full rounded-md border border-(--border) bg-(--bg-2) px-2 py-1 text-xs text-(--text) outline-none transition focus:border-(--accent)"
+                      />
+                    ) : (
+                      <span className="truncate">{channel.name}</span>
+                    )}
                   </button>
                   <div className="flex items-center gap-2">
                     {voiceMembersByChannelId[channel.id]?.length ? (
                       <span className="text-xs text-(--subtle)">
                         {voiceMembersByChannelId[channel.id].length}
                       </span>
+                    ) : null}
+                    {canManageChannels ? (
+                      <div className="relative">
+                        <Tooltip label="Настройки канала">
+                          <button
+                            type="button"
+                            className="flex h-6 w-6 items-center justify-center rounded-md border border-(--border) text-xs text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
+                            aria-label="Настройки канала"
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              setChannelMenuId((prev) =>
+                                prev === channel.id ? null : channel.id,
+                              );
+                              setChannelNameDraft(channel.name);
+                              setChannelError(null);
+                            }}
+                          >
+                            <svg
+                              className="h-3.5 w-3.5"
+                              viewBox="0 0 16 16"
+                              fill="none"
+                              xmlns="http://www.w3.org/2000/svg"
+                              aria-hidden="true"
+                            >
+                              <path
+                                d="M8 3.5V2.2M8 13.8V12.5M3.5 8H2.2M13.8 8H12.5M11.2 4.8L10.3 5.7M5.7 10.3L4.8 11.2M11.2 11.2L10.3 10.3M5.7 5.7L4.8 4.8"
+                                stroke="currentColor"
+                                strokeWidth="1.1"
+                                strokeLinecap="round"
+                              />
+                              <circle
+                                cx="8"
+                                cy="8"
+                                r="2.3"
+                                stroke="currentColor"
+                                strokeWidth="1.1"
+                              />
+                            </svg>
+                          </button>
+                        </Tooltip>
+                        {channelMenuId === channel.id ? (
+                          <div
+                            className="absolute right-0 top-8 z-50 w-40 rounded-xl border border-(--border) bg-(--panel) p-2 text-xs shadow-xl"
+                            onClick={(ev) => ev.stopPropagation()}
+                          >
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-(--text) transition hover:bg-(--bg-2)"
+                              onClick={() => {
+                                setEditingChannelId(channel.id);
+                                setChannelMenuId(null);
+                              }}
+                            >
+                              Переименовать
+                            </button>
+                            <button
+                              type="button"
+                              className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-(--danger) transition hover:bg-(--bg-2)"
+                              onClick={() => {
+                                setDeleteChannelId(channel.id);
+                                setChannelMenuId(null);
+                              }}
+                            >
+                              Удалить
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
                     ) : null}
                     {activeVoiceChannelId === channel.id && (
                       <>
@@ -245,18 +407,15 @@ export default function SpaceSidebar({
                     )}
                   </div>
                 </div>
+                {editingChannelId === channel.id && channelError ? (
+                  <div className="mt-1 px-3 text-[11px] text-(--danger)">
+                    {channelError}
+                  </div>
+                ) : null}
                 {voiceMembersByChannelId[channel.id]?.length ? (
                   <div className="mt-1 space-y-1 pl-7 text-[14px] text-(--subtle)">
                     {voiceMembersByChannelId[channel.id].map((member) => (
-                      <div
-                        key={member.id}
-                        className="relative flex items-center gap-2"
-                        onContextMenu={(ev) => {
-                          ev.preventDefault();
-                          if (member.id === me?.id) return;
-                          setMenuUserId(member.id);
-                        }}
-                      >
+                      <div key={member.id} className="relative flex items-center gap-2">
                         <span
                           className={`h-[7px] w-[7px] rounded-full ${
                             speakingByUserId?.[member.id] && !mutedUserIds[member.id]
@@ -353,38 +512,107 @@ export default function SpaceSidebar({
                           </Tooltip>
                         ) : null}
                         {member.id !== me?.id ? (
-                          <Tooltip label="Громкость">
-                            <button
-                              type="button"
-                              className="ml-auto flex h-6 w-6 items-center justify-center rounded border border-(--border) text-[11px] text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
-                              aria-label="Громкость"
-                              onClick={(ev) => {
-                                ev.stopPropagation();
-                                setMenuUserId(member.id);
-                              }}
-                            >
-                              <svg
-                                className="h-3.5 w-3.5"
-                                viewBox="0 0 16 16"
-                                fill="none"
-                                xmlns="http://www.w3.org/2000/svg"
-                                aria-hidden="true"
+                          <div className="ml-auto flex items-center gap-1">
+                            {onToggleUserMute ? (
+                              <Tooltip
+                                label={
+                                  mutedUserIds[member.id]
+                                    ? "Снять заглушение"
+                                    : "Заглушить"
+                                }
                               >
-                                <path
-                                  d="M3 6.5H5.5L8.5 4V12L5.5 9.5H3V6.5Z"
-                                  stroke="currentColor"
-                                  strokeWidth="1.2"
-                                  strokeLinejoin="round"
-                                />
-                                <path
-                                  d="M11 6.2C11.7 7 11.7 9 11 9.8"
-                                  stroke="currentColor"
-                                  strokeWidth="1.2"
-                                  strokeLinecap="round"
-                                />
-                              </svg>
-                            </button>
-                          </Tooltip>
+                                <button
+                                  type="button"
+                                  className={`flex h-6 w-6 items-center justify-center rounded border text-[11px] transition ${
+                                    mutedUserIds[member.id]
+                                      ? "border-red-500/50 text-red-300"
+                                      : "border-(--border) text-(--muted) hover:border-(--accent) hover:text-(--accent)"
+                                  }`}
+                                  aria-label={
+                                    mutedUserIds[member.id]
+                                      ? "Снять заглушение"
+                                      : "Заглушить"
+                                  }
+                                  onClick={(ev) => {
+                                    ev.stopPropagation();
+                                    onToggleUserMute(member.id);
+                                  }}
+                                >
+                                  <svg
+                                    className="h-3.5 w-3.5"
+                                    viewBox="0 0 16 16"
+                                    fill="none"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    aria-hidden="true"
+                                  >
+                                    <path
+                                      d="M8 3.2C8.9 3.2 9.6 3.9 9.6 4.8V8.2C9.6 9.1 8.9 9.8 8 9.8C7.1 9.8 6.4 9.1 6.4 8.2V4.8C6.4 3.9 7.1 3.2 8 3.2Z"
+                                      stroke="currentColor"
+                                      strokeWidth="1.2"
+                                    />
+                                    <path
+                                      d="M11 7.4V8.3C11 10.1 9.7 11.6 8 11.6C6.3 11.6 5 10.1 5 8.3V7.4"
+                                      stroke="currentColor"
+                                      strokeWidth="1.2"
+                                      strokeLinecap="round"
+                                    />
+                                    <path
+                                      d="M6.5 11.6V13"
+                                      stroke="currentColor"
+                                      strokeWidth="1.2"
+                                      strokeLinecap="round"
+                                    />
+                                    <path
+                                      d="M5 13H11"
+                                      stroke="currentColor"
+                                      strokeWidth="1.2"
+                                      strokeLinecap="round"
+                                    />
+                                    {mutedUserIds[member.id] ? (
+                                      <path
+                                        d="M2 2L12 12"
+                                        stroke="currentColor"
+                                        strokeWidth="1.2"
+                                        strokeLinecap="round"
+                                      />
+                                    ) : null}
+                                  </svg>
+                                </button>
+                              </Tooltip>
+                            ) : null}
+                            <Tooltip label="Громкость">
+                              <button
+                                type="button"
+                                className="flex h-6 w-6 items-center justify-center rounded border border-(--border) text-[11px] text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
+                                aria-label="Громкость"
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  setMenuUserId(member.id);
+                                }}
+                              >
+                                <svg
+                                  className="h-3.5 w-3.5"
+                                  viewBox="0 0 16 16"
+                                  fill="none"
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  aria-hidden="true"
+                                >
+                                  <path
+                                    d="M3 6.5H5.5L8.5 4V12L5.5 9.5H3V6.5Z"
+                                    stroke="currentColor"
+                                    strokeWidth="1.2"
+                                    strokeLinejoin="round"
+                                  />
+                                  <path
+                                    d="M11 6.2C11.7 7 11.7 9 11 9.8"
+                                    stroke="currentColor"
+                                    strokeWidth="1.2"
+                                    strokeLinecap="round"
+                                  />
+                                </svg>
+                              </button>
+                            </Tooltip>
+                          </div>
                         ) : null}
                         {menuUserId === member.id ? (
                           <div
@@ -430,6 +658,38 @@ export default function SpaceSidebar({
         spaceId={spaceId}
         onCreated={onChannelsChanged}
       />
+      {deleteChannelId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-6 py-10">
+          <button
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setDeleteChannelId(null)}
+            aria-label="Закрыть"
+          />
+          <div className="relative w-full max-w-md rounded-2xl border border-(--border) bg-(--panel) p-6 shadow-(--shadow-2)">
+            <h3 className="text-lg font-semibold">Удалить голосовой канал?</h3>
+            <p className="mt-2 text-sm text-(--muted)">
+              Канал будет удален без возможности восстановления.
+            </p>
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDeleteChannelId(null)}
+                className="rounded-xl border border-(--border) px-4 py-2 text-sm text-(--muted) transition hover:text-(--accent)"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={() => handleChannelDelete(deleteChannelId)}
+                disabled={channelDeleting}
+                className="rounded-xl border border-(--danger) px-4 py-2 text-sm text-(--danger) transition hover:border-red-500/80 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {channelDeleting ? "Удаление…" : "Удалить"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       </aside>
     </>
   );
