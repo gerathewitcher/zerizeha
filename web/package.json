@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "main": "electron/main.js",
   "private": true,
+    "author": {
+    "name": "Aytek Gerandokov",
+    "email": "gerandokov1337@gmail.com"
+},
   "scripts": {
     "dev": "next dev",
     "build": "next build",
