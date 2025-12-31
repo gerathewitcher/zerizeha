@@ -33,6 +33,7 @@ type SpaceSidebarProps = {
   onToggleUserMute?: (userId: string) => void;
   canManageChannels?: boolean;
   canManageSpace?: boolean;
+  showVoiceChannels?: boolean;
   onChannelsChanged?: () => void;
 };
 
@@ -56,6 +57,7 @@ export default function SpaceSidebar({
   onToggleUserMute,
   canManageChannels = false,
   canManageSpace = false,
+  showVoiceChannels = true,
   onChannelsChanged,
 }: SpaceSidebarProps) {
   const [createOpen, setCreateOpen] = useState(false);
@@ -225,219 +227,105 @@ export default function SpaceSidebar({
           </div>
         </div>
 
-        <div>
-          <div className="flex items-center justify-between text-xs uppercase tracking-[0.2em] text-(--subtle)">
-            Голосовые
-            <Tooltip label="Создать канал">
-              <button
-                className="flex h-7 w-7 items-center justify-center rounded-lg border border-(--border) text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
-                onClick={() => {
-                  setCreateType("voice");
-                  setCreateOpen(true);
-                }}
-                aria-label="Создать канал"
-              >
-                <svg
-                  className="h-4 w-4"
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  aria-hidden="true"
+        {showVoiceChannels ? (
+          <div>
+            <div className="flex items-center justify-between text-xs uppercase tracking-[0.2em] text-(--subtle)">
+              Голосовые
+              <Tooltip label="Создать канал">
+                <button
+                  className="flex h-7 w-7 items-center justify-center rounded-lg border border-(--border) text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
+                  onClick={() => {
+                    setCreateType("voice");
+                    setCreateOpen(true);
+                  }}
+                  aria-label="Создать канал"
                 >
-                  <path
-                    d="M8 3.5V12.5M3.5 8H12.5"
-                    stroke="currentColor"
-                    strokeWidth="1.6"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </button>
-            </Tooltip>
-          </div>
-          <div className="mt-3 flex flex-col gap-1">
-            {voiceChannels.map((channel) => (
-              <div key={channel.id} className="flex flex-col">
-                <div
-                  className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                    channel.id === activeVoiceChannelId
-                      ? "bg-(--bg-2) text-(--text)"
-                      : "text-(--muted) hover:text-(--text)"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                    onClick={() => onSelectVoiceChannel?.(channel.id)}
+                  <svg
+                    className="h-4 w-4"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden="true"
                   >
-                    <span className="text-(--subtle)">🔊</span>
-                    {editingChannelId === channel.id ? (
-                      <input
-                        value={channelNameDraft}
-                        onChange={(event) => {
-                          setChannelNameDraft(event.target.value);
-                          setChannelError(null);
-                        }}
-                        onClick={(ev) => ev.stopPropagation()}
-                        onKeyDown={(ev) => {
-                          if (ev.key === "Enter") {
-                            ev.preventDefault();
-                            handleChannelSave(channel.id);
-                          } else if (ev.key === "Escape") {
+                    <path
+                      d="M8 3.5V12.5M3.5 8H12.5"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+              </Tooltip>
+            </div>
+            <div className="mt-3 flex flex-col gap-1">
+              {voiceChannels.map((channel) => (
+                <div key={channel.id} className="flex flex-col">
+                  <div
+                    className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                      channel.id === activeVoiceChannelId
+                        ? "bg-(--bg-2) text-(--text)"
+                        : "text-(--muted) hover:text-(--text)"
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                      onClick={() => onSelectVoiceChannel?.(channel.id)}
+                    >
+                      <span className="text-(--subtle)">🔊</span>
+                      {editingChannelId === channel.id ? (
+                        <input
+                          value={channelNameDraft}
+                          onChange={(event) => {
+                            setChannelNameDraft(event.target.value);
+                            setChannelError(null);
+                          }}
+                          onClick={(ev) => ev.stopPropagation()}
+                          onKeyDown={(ev) => {
+                            if (ev.key === "Enter") {
+                              ev.preventDefault();
+                              handleChannelSave(channel.id);
+                            } else if (ev.key === "Escape") {
+                              setEditingChannelId(null);
+                              setChannelError(null);
+                              setChannelNameDraft(channel.name);
+                            }
+                          }}
+                          onBlur={() => {
+                            if (channelSaving) return;
                             setEditingChannelId(null);
                             setChannelError(null);
                             setChannelNameDraft(channel.name);
-                          }
-                        }}
-                        onBlur={() => {
-                          if (channelSaving) return;
-                          setEditingChannelId(null);
-                          setChannelError(null);
-                          setChannelNameDraft(channel.name);
-                        }}
-                        autoFocus
-                        className="w-full rounded-md border border-(--border) bg-(--bg-2) px-2 py-1 text-xs text-(--text) outline-none transition focus:border-(--accent)"
-                      />
-                    ) : (
-                      <span className="truncate">{channel.name}</span>
-                    )}
-                  </button>
-                  <div className="flex items-center gap-2">
-                    {voiceMembersByChannelId[channel.id]?.length ? (
-                      <span className="text-xs text-(--subtle)">
-                        {voiceMembersByChannelId[channel.id].length}
-                      </span>
-                    ) : null}
-                    {canManageChannels ? (
-                      <div className="relative">
-                        <Tooltip label="Настройки канала">
-                          <button
-                            type="button"
-                            className="flex h-6 w-6 items-center justify-center rounded-md border border-(--border) text-xs text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
-                            aria-label="Настройки канала"
-                            onClick={(ev) => {
-                              ev.stopPropagation();
-                              setChannelMenuId((prev) =>
-                                prev === channel.id ? null : channel.id,
-                              );
-                              setChannelNameDraft(channel.name);
-                              setChannelError(null);
-                            }}
-                          >
-                            <svg
-                              className="h-3.5 w-3.5"
-                              viewBox="0 0 16 16"
-                              fill="none"
-                              xmlns="http://www.w3.org/2000/svg"
-                              aria-hidden="true"
-                            >
-                              <path
-                                d="M8 3.5V2.2M8 13.8V12.5M3.5 8H2.2M13.8 8H12.5M11.2 4.8L10.3 5.7M5.7 10.3L4.8 11.2M11.2 11.2L10.3 10.3M5.7 5.7L4.8 4.8"
-                                stroke="currentColor"
-                                strokeWidth="1.1"
-                                strokeLinecap="round"
-                              />
-                              <circle
-                                cx="8"
-                                cy="8"
-                                r="2.3"
-                                stroke="currentColor"
-                                strokeWidth="1.1"
-                              />
-                            </svg>
-                          </button>
-                        </Tooltip>
-                        {channelMenuId === channel.id ? (
-                          <div
-                            className="absolute right-0 top-8 z-50 w-40 rounded-xl border border-(--border) bg-(--panel) p-2 text-xs shadow-xl"
-                            onClick={(ev) => ev.stopPropagation()}
-                          >
-                            <button
-                              type="button"
-                              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-(--text) transition hover:bg-(--bg-2)"
-                              onClick={() => {
-                                setEditingChannelId(channel.id);
-                                setChannelMenuId(null);
-                              }}
-                            >
-                              Переименовать
-                            </button>
-                            <button
-                              type="button"
-                              className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-(--danger) transition hover:bg-(--bg-2)"
-                              onClick={() => {
-                                setDeleteChannelId(channel.id);
-                                setChannelMenuId(null);
-                              }}
-                            >
-                              Удалить
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                    {activeVoiceChannelId === channel.id && (
-                      <>
-                        <Tooltip label="Открыть чат">
-                          <button
-                            className={`flex h-6 w-6 items-center justify-center rounded-md border text-xs transition ${
-                              chatOpen
-                                ? "border-(--accent) text-(--accent)"
-                                : "border-(--border) text-(--muted) hover:border-(--accent) hover:text-(--accent)"
-                            }`}
-                            aria-label="Открыть чат"
-                            onClick={onToggleChat}
-                          >
-                            <svg
-                              className="h-3.5 w-3.5"
-                              viewBox="0 0 16 16"
-                              fill="none"
-                              xmlns="http://www.w3.org/2000/svg"
-                              aria-hidden="true"
-                            >
-                              <path
-                                d="M3 4.5C3 3.7 3.7 3 4.5 3H11.5C12.3 3 13 3.7 13 4.5V9.5C13 10.3 12.3 11 11.5 11H7L4 13V4.5Z"
-                                stroke="currentColor"
-                                strokeWidth="1.2"
-                                strokeLinejoin="round"
-                              />
-                            </svg>
-                          </button>
-                        </Tooltip>
-                      </>
-                    )}
-                  </div>
-                </div>
-                {editingChannelId === channel.id && channelError ? (
-                  <div className="mt-1 px-3 text-[11px] text-(--danger)">
-                    {channelError}
-                  </div>
-                ) : null}
-                {voiceMembersByChannelId[channel.id]?.length ? (
-                  <div className="mt-1 space-y-1 pl-7 text-[14px] text-(--subtle)">
-                    {voiceMembersByChannelId[channel.id].map((member) => (
-                      <div key={member.id} className="relative flex items-center gap-2">
-                        <span
-                          className={`h-[7px] w-[7px] rounded-full ${
-                            speakingByUserId?.[member.id] && !mutedUserIds[member.id]
-                              ? "bg-(--accent) animate-[pulse_0.8s_ease-in-out_infinite]"
-                              : "bg-(--border)"
-                          }`}
+                          }}
+                          autoFocus
+                          className="w-full rounded-md border border-(--border) bg-(--bg-2) px-2 py-1 text-xs text-(--text) outline-none transition focus:border-(--accent)"
                         />
-                        <span className="truncate">{member.username}</span>
-                        {member.is_admin ? (
-                          <Tooltip label="Админ">
-                            <span className="text-(--accent)">★</span>
-                          </Tooltip>
-                        ) : null}
-                        {member.muted || mutedUserIds[member.id] ? (
-                          <Tooltip
-                            label={
-                              mutedUserIds[member.id]
-                                ? "Пользователь заглушен"
-                                : "Микрофон выключен"
-                            }
-                          >
-                            <span className="text-(--danger)">
+                      ) : (
+                        <span className="truncate">{channel.name}</span>
+                      )}
+                    </button>
+                    <div className="flex items-center gap-2">
+                      {voiceMembersByChannelId[channel.id]?.length ? (
+                        <span className="text-xs text-(--subtle)">
+                          {voiceMembersByChannelId[channel.id].length}
+                        </span>
+                      ) : null}
+                      {canManageChannels ? (
+                        <div className="relative">
+                          <Tooltip label="Настройки канала">
+                            <button
+                              type="button"
+                              className="flex h-6 w-6 items-center justify-center rounded-md border border-(--border) text-xs text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
+                              aria-label="Настройки канала"
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                setChannelMenuId((prev) =>
+                                  prev === channel.id ? null : channel.id,
+                                );
+                                setChannelNameDraft(channel.name);
+                                setChannelError(null);
+                              }}
+                            >
                               <svg
                                 className="h-3.5 w-3.5"
                                 viewBox="0 0 16 16"
@@ -446,42 +334,62 @@ export default function SpaceSidebar({
                                 aria-hidden="true"
                               >
                                 <path
-                                  d="M6 6.5V4.5C6 3.7 6.7 3 7.5 3C8.3 3 9 3.7 9 4.5V6.5"
+                                  d="M8 3.5V2.2M8 13.8V12.5M3.5 8H2.2M13.8 8H12.5M11.2 4.8L10.3 5.7M5.7 10.3L4.8 11.2M11.2 11.2L10.3 10.3M5.7 5.7L4.8 4.8"
                                   stroke="currentColor"
-                                  strokeWidth="1.2"
+                                  strokeWidth="1.1"
                                   strokeLinecap="round"
                                 />
-                                <path
-                                  d="M5 7.5C5 8.9 6.1 10 7.5 10C8.9 10 10 8.9 10 7.5V6.8"
+                                <circle
+                                  cx="8"
+                                  cy="8"
+                                  r="2.3"
                                   stroke="currentColor"
-                                  strokeWidth="1.2"
-                                  strokeLinecap="round"
-                                />
-                                <path
-                                  d="M4 13H11"
-                                  stroke="currentColor"
-                                  strokeWidth="1.2"
-                                  strokeLinecap="round"
-                                />
-                                <path
-                                  d="M7.5 10V13"
-                                  stroke="currentColor"
-                                  strokeWidth="1.2"
-                                  strokeLinecap="round"
-                                />
-                                <path
-                                  d="M3 3L13 13"
-                                  stroke="currentColor"
-                                  strokeWidth="1.2"
-                                  strokeLinecap="round"
+                                  strokeWidth="1.1"
                                 />
                               </svg>
-                            </span>
+                            </button>
                           </Tooltip>
-                        ) : null}
-                        {member.deafened ? (
-                          <Tooltip label="Звук выключен">
-                            <span className="text-(--danger)">
+                          {channelMenuId === channel.id ? (
+                            <div
+                              className="absolute right-0 top-8 z-50 w-40 rounded-xl border border-(--border) bg-(--panel) p-2 text-xs shadow-xl"
+                              onClick={(ev) => ev.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-(--text) transition hover:bg-(--bg-2)"
+                                onClick={() => {
+                                  setEditingChannelId(channel.id);
+                                  setChannelMenuId(null);
+                                }}
+                              >
+                                Переименовать
+                              </button>
+                              <button
+                                type="button"
+                                className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-(--danger) transition hover:bg-(--bg-2)"
+                                onClick={() => {
+                                  setDeleteChannelId(channel.id);
+                                  setChannelMenuId(null);
+                                }}
+                              >
+                                Удалить
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {activeVoiceChannelId === channel.id && (
+                        <>
+                          <Tooltip label="Открыть чат">
+                            <button
+                              className={`flex h-6 w-6 items-center justify-center rounded-md border text-xs transition ${
+                                chatOpen
+                                  ? "border-(--accent) text-(--accent)"
+                                  : "border-(--border) text-(--muted) hover:border-(--accent) hover:text-(--accent)"
+                              }`}
+                              aria-label="Открыть чат"
+                              onClick={onToggleChat}
+                            >
                               <svg
                                 className="h-3.5 w-3.5"
                                 viewBox="0 0 16 16"
@@ -490,52 +398,199 @@ export default function SpaceSidebar({
                                 aria-hidden="true"
                               >
                                 <path
-                                  d="M6 4.5L4.2 6H3V10H4.2L6 11.5V4.5Z"
+                                  d="M3 4.5C3 3.7 3.7 3 4.5 3H11.5C12.3 3 13 3.7 13 4.5V9.5C13 10.3 12.3 11 11.5 11H7L4 13V4.5Z"
                                   stroke="currentColor"
                                   strokeWidth="1.2"
                                   strokeLinejoin="round"
                                 />
-                                <path
-                                  d="M11 5.5C12 6.5 12 9.5 11 10.5"
-                                  stroke="currentColor"
-                                  strokeWidth="1.2"
-                                  strokeLinecap="round"
-                                />
-                                <path
-                                  d="M3 3L13 13"
-                                  stroke="currentColor"
-                                  strokeWidth="1.2"
-                                  strokeLinecap="round"
-                                />
                               </svg>
-                            </span>
+                            </button>
                           </Tooltip>
-                        ) : null}
-                        {member.id !== me?.id ? (
-                          <div className="ml-auto flex items-center gap-1">
-                            {onToggleUserMute ? (
-                              <Tooltip
-                                label={
-                                  mutedUserIds[member.id]
-                                    ? "Снять заглушение"
-                                    : "Заглушить"
-                                }
-                              >
-                                <button
-                                  type="button"
-                                  className={`flex h-6 w-6 items-center justify-center rounded border text-[11px] transition ${
-                                    mutedUserIds[member.id]
-                                      ? "border-red-500/50 text-red-300"
-                                      : "border-(--border) text-(--muted) hover:border-(--accent) hover:text-(--accent)"
-                                  }`}
-                                  aria-label={
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {editingChannelId === channel.id && channelError ? (
+                    <div className="mt-1 px-3 text-[11px] text-(--danger)">
+                      {channelError}
+                    </div>
+                  ) : null}
+                  {voiceMembersByChannelId[channel.id]?.length ? (
+                    <div className="mt-1 space-y-1 pl-7 text-[14px] text-(--subtle)">
+                      {voiceMembersByChannelId[channel.id].map((member) => (
+                        <div key={member.id} className="relative flex items-center gap-2">
+                          <span
+                            className={`h-[7px] w-[7px] rounded-full ${
+                              speakingByUserId?.[member.id] && !mutedUserIds[member.id]
+                                ? "bg-(--accent) animate-[pulse_0.8s_ease-in-out_infinite]"
+                                : "bg-(--border)"
+                            }`}
+                          />
+                          <span className="truncate">{member.username}</span>
+                          {member.is_admin ? (
+                            <Tooltip label="Админ">
+                              <span className="text-(--accent)">★</span>
+                            </Tooltip>
+                          ) : null}
+                          {member.muted || mutedUserIds[member.id] ? (
+                            <Tooltip
+                              label={
+                                mutedUserIds[member.id]
+                                  ? "Пользователь заглушен"
+                                  : "Микрофон выключен"
+                              }
+                            >
+                              <span className="text-(--danger)">
+                                <svg
+                                  className="h-3.5 w-3.5"
+                                  viewBox="0 0 16 16"
+                                  fill="none"
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  aria-hidden="true"
+                                >
+                                  <path
+                                    d="M6 6.5V4.5C6 3.7 6.7 3 7.5 3C8.3 3 9 3.7 9 4.5V6.5"
+                                    stroke="currentColor"
+                                    strokeWidth="1.2"
+                                    strokeLinecap="round"
+                                  />
+                                  <path
+                                    d="M5 7.5C5 8.9 6.1 10 7.5 10C8.9 10 10 8.9 10 7.5V6.8"
+                                    stroke="currentColor"
+                                    strokeWidth="1.2"
+                                    strokeLinecap="round"
+                                  />
+                                  <path
+                                    d="M4 13H11"
+                                    stroke="currentColor"
+                                    strokeWidth="1.2"
+                                    strokeLinecap="round"
+                                  />
+                                  <path
+                                    d="M7.5 10V13"
+                                    stroke="currentColor"
+                                    strokeWidth="1.2"
+                                    strokeLinecap="round"
+                                  />
+                                  <path
+                                    d="M3 3L13 13"
+                                    stroke="currentColor"
+                                    strokeWidth="1.2"
+                                    strokeLinecap="round"
+                                  />
+                                </svg>
+                              </span>
+                            </Tooltip>
+                          ) : null}
+                          {member.deafened ? (
+                            <Tooltip label="Звук выключен">
+                              <span className="text-(--danger)">
+                                <svg
+                                  className="h-3.5 w-3.5"
+                                  viewBox="0 0 16 16"
+                                  fill="none"
+                                  xmlns="http://www.w3.org/2000/svg"
+                                  aria-hidden="true"
+                                >
+                                  <path
+                                    d="M6 4.5L4.2 6H3V10H4.2L6 11.5V4.5Z"
+                                    stroke="currentColor"
+                                    strokeWidth="1.2"
+                                    strokeLinejoin="round"
+                                  />
+                                  <path
+                                    d="M11 5.5C12 6.5 12 9.5 11 10.5"
+                                    stroke="currentColor"
+                                    strokeWidth="1.2"
+                                    strokeLinecap="round"
+                                  />
+                                  <path
+                                    d="M3 3L13 13"
+                                    stroke="currentColor"
+                                    strokeWidth="1.2"
+                                    strokeLinecap="round"
+                                  />
+                                </svg>
+                              </span>
+                            </Tooltip>
+                          ) : null}
+                          {member.id !== me?.id ? (
+                            <div className="ml-auto flex items-center gap-1">
+                              {onToggleUserMute ? (
+                                <Tooltip
+                                  label={
                                     mutedUserIds[member.id]
                                       ? "Снять заглушение"
                                       : "Заглушить"
                                   }
+                                >
+                                  <button
+                                    type="button"
+                                    className={`flex h-6 w-6 items-center justify-center rounded border text-[11px] transition ${
+                                      mutedUserIds[member.id]
+                                        ? "border-red-500/50 text-red-300"
+                                        : "border-(--border) text-(--muted) hover:border-(--accent) hover:text-(--accent)"
+                                    }`}
+                                    aria-label={
+                                      mutedUserIds[member.id]
+                                        ? "Снять заглушение"
+                                        : "Заглушить"
+                                    }
+                                    onClick={(ev) => {
+                                      ev.stopPropagation();
+                                      onToggleUserMute(member.id);
+                                    }}
+                                  >
+                                    <svg
+                                      className="h-3.5 w-3.5"
+                                      viewBox="0 0 16 16"
+                                      fill="none"
+                                      xmlns="http://www.w3.org/2000/svg"
+                                      aria-hidden="true"
+                                    >
+                                      <path
+                                        d="M8 3.2C8.9 3.2 9.6 3.9 9.6 4.8V8.2C9.6 9.1 8.9 9.8 8 9.8C7.1 9.8 6.4 9.1 6.4 8.2V4.8C6.4 3.9 7.1 3.2 8 3.2Z"
+                                        stroke="currentColor"
+                                        strokeWidth="1.2"
+                                      />
+                                      <path
+                                        d="M11 7.4V8.3C11 10.1 9.7 11.6 8 11.6C6.3 11.6 5 10.1 5 8.3V7.4"
+                                        stroke="currentColor"
+                                        strokeWidth="1.2"
+                                        strokeLinecap="round"
+                                      />
+                                      <path
+                                        d="M6.5 11.6V13"
+                                        stroke="currentColor"
+                                        strokeWidth="1.2"
+                                        strokeLinecap="round"
+                                      />
+                                      <path
+                                        d="M5 13H11"
+                                        stroke="currentColor"
+                                        strokeWidth="1.2"
+                                        strokeLinecap="round"
+                                      />
+                                      {mutedUserIds[member.id] ? (
+                                        <path
+                                          d="M2 2L12 12"
+                                          stroke="currentColor"
+                                          strokeWidth="1.2"
+                                          strokeLinecap="round"
+                                        />
+                                      ) : null}
+                                    </svg>
+                                  </button>
+                                </Tooltip>
+                              ) : null}
+                              <Tooltip label="Громкость">
+                                <button
+                                  type="button"
+                                  className="flex h-6 w-6 items-center justify-center rounded border border-(--border) text-[11px] text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
+                                  aria-label="Громкость"
                                   onClick={(ev) => {
                                     ev.stopPropagation();
-                                    onToggleUserMute(member.id);
+                                    setMenuUserId(member.id);
                                   }}
                                 >
                                   <svg
@@ -546,109 +601,58 @@ export default function SpaceSidebar({
                                     aria-hidden="true"
                                   >
                                     <path
-                                      d="M8 3.2C8.9 3.2 9.6 3.9 9.6 4.8V8.2C9.6 9.1 8.9 9.8 8 9.8C7.1 9.8 6.4 9.1 6.4 8.2V4.8C6.4 3.9 7.1 3.2 8 3.2Z"
+                                      d="M3 6.5H5.5L8.5 4V12L5.5 9.5H3V6.5Z"
                                       stroke="currentColor"
                                       strokeWidth="1.2"
+                                      strokeLinejoin="round"
                                     />
                                     <path
-                                      d="M11 7.4V8.3C11 10.1 9.7 11.6 8 11.6C6.3 11.6 5 10.1 5 8.3V7.4"
+                                      d="M11 6.2C11.7 7 11.7 9 11 9.8"
                                       stroke="currentColor"
                                       strokeWidth="1.2"
                                       strokeLinecap="round"
                                     />
-                                    <path
-                                      d="M6.5 11.6V13"
-                                      stroke="currentColor"
-                                      strokeWidth="1.2"
-                                      strokeLinecap="round"
-                                    />
-                                    <path
-                                      d="M5 13H11"
-                                      stroke="currentColor"
-                                      strokeWidth="1.2"
-                                      strokeLinecap="round"
-                                    />
-                                    {mutedUserIds[member.id] ? (
-                                      <path
-                                        d="M2 2L12 12"
-                                        stroke="currentColor"
-                                        strokeWidth="1.2"
-                                        strokeLinecap="round"
-                                      />
-                                    ) : null}
                                   </svg>
                                 </button>
                               </Tooltip>
-                            ) : null}
-                            <Tooltip label="Громкость">
-                              <button
-                                type="button"
-                                className="flex h-6 w-6 items-center justify-center rounded border border-(--border) text-[11px] text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
-                                aria-label="Громкость"
-                                onClick={(ev) => {
-                                  ev.stopPropagation();
-                                  setMenuUserId(member.id);
-                                }}
-                              >
-                                <svg
-                                  className="h-3.5 w-3.5"
-                                  viewBox="0 0 16 16"
-                                  fill="none"
-                                  xmlns="http://www.w3.org/2000/svg"
-                                  aria-hidden="true"
-                                >
-                                  <path
-                                    d="M3 6.5H5.5L8.5 4V12L5.5 9.5H3V6.5Z"
-                                    stroke="currentColor"
-                                    strokeWidth="1.2"
-                                    strokeLinejoin="round"
-                                  />
-                                  <path
-                                    d="M11 6.2C11.7 7 11.7 9 11 9.8"
-                                    stroke="currentColor"
-                                    strokeWidth="1.2"
-                                    strokeLinecap="round"
-                                  />
-                                </svg>
-                              </button>
-                            </Tooltip>
-                          </div>
-                        ) : null}
-                        {menuUserId === member.id ? (
-                          <div
-                            className="absolute left-0 top-full z-50 mt-2 w-40 rounded-lg border border-(--border) bg-(--panel) p-2 text-[11px] shadow-xl"
-                            onClick={(ev) => ev.stopPropagation()}
-                          >
-                            <p className="truncate text-[10px] uppercase tracking-[0.2em] text-(--subtle)">
-                              {member.username}
-                            </p>
-                            <input
-                              type="range"
-                              min={0}
-                              max={1}
-                              step={0.05}
-                              value={volumeByUserId[member.id] ?? 1}
-                              onChange={(ev) =>
-                                onVolumeChange?.(
-                                  member.id,
-                                  Number(ev.currentTarget.value),
-                                )
-                              }
-                              className="mt-2 w-full accent-(--accent)"
-                            />
-                            <div className="mt-1 text-[10px] text-(--muted)">
-                              {Math.round((volumeByUserId[member.id] ?? 1) * 100)}%
                             </div>
-                          </div>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ))}
+                          ) : null}
+                          {menuUserId === member.id ? (
+                            <div
+                              className="absolute left-0 top-full z-50 mt-2 w-40 rounded-lg border border-(--border) bg-(--panel) p-2 text-[11px] shadow-xl"
+                              onClick={(ev) => ev.stopPropagation()}
+                            >
+                              <p className="truncate text-[10px] uppercase tracking-[0.2em] text-(--subtle)">
+                                {member.username}
+                              </p>
+                              <input
+                                type="range"
+                                min={0}
+                                max={1}
+                                step={0.05}
+                                value={volumeByUserId[member.id] ?? 1}
+                                onChange={(ev) =>
+                                  onVolumeChange?.(
+                                    member.id,
+                                    Number(ev.currentTarget.value),
+                                  )
+                                }
+                                className="mt-2 w-full accent-(--accent)"
+                              />
+                              <div className="mt-1 text-[10px] text-(--muted)">
+                                {Math.round((volumeByUserId[member.id] ?? 1) * 100)}%
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        ) : null}
       </div>
 
       <CreateChannelModal

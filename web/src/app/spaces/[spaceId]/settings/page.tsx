@@ -4,8 +4,6 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import SpaceMembersSection from "@/components/spaces/SpaceMembersSection";
-import SpaceRail from "@/components/spaces/SpaceRail";
-import SpaceSidebar from "@/components/spaces/SpaceSidebar";
 import { useVoiceSession } from "@/components/spaces/VoiceSessionProvider";
 import ErrorState from "@/components/ui/ErrorState";
 import { logout } from "@/lib/api/auth";
@@ -37,6 +35,7 @@ export default function SpaceSettingsPage() {
   const [state, setState] = useState<ViewState>({ status: "loading" });
   const [reloadKey, setReloadKey] = useState(0);
   const [loggingOut, setLoggingOut] = useState(false);
+  const [activeSection, setActiveSection] = useState<"main" | "members">("main");
   const [spaceNameDraft, setSpaceNameDraft] = useState("");
   const [spaceNameError, setSpaceNameError] = useState<string | null>(null);
   const [spaceNameSaving, setSpaceNameSaving] = useState(false);
@@ -113,11 +112,6 @@ export default function SpaceSettingsPage() {
     }
   }, [spaceId, spaceNameDraft, spaceNameSaving]);
 
-  const railSpaces = useMemo(() => {
-    if (state.status !== "ready") return [];
-    return state.spaces.map((space) => ({ id: space.id, name: space.name }));
-  }, [state]);
-
   const handleLogout = useCallback(async () => {
     if (loggingOut) return;
     setLoggingOut(true);
@@ -133,15 +127,12 @@ export default function SpaceSettingsPage() {
     }
   }, [loggingOut, voiceSession]);
 
-  const { textChannels, voiceChannels } = useMemo(() => {
-    if (state.status !== "ready") return { textChannels: [], voiceChannels: [] };
-    const textChannels = state.channels
-      .filter((channel) => channel.channel_type === "text")
-      .map((channel) => ({ id: channel.id, name: channel.name }));
+  const voiceChannels = useMemo(() => {
+    if (state.status !== "ready") return [];
     const voiceChannels = state.channels
       .filter((channel) => channel.channel_type === "voice")
       .map((channel) => ({ id: channel.id, name: channel.name }));
-    return { textChannels, voiceChannels };
+    return voiceChannels;
   }, [state]);
 
   const { setSpaceVoiceChannels } = voiceSession;
@@ -161,32 +152,6 @@ export default function SpaceSettingsPage() {
   return (
     <div className="min-h-screen bg-(--bg) text-(--text)">
       <div className="flex h-screen overflow-hidden">
-        <SpaceRail
-          spaces={railSpaces}
-          onLogout={handleLogout}
-          loggingOut={loggingOut}
-          activeVoiceSpaceId={voiceSession.activeVoiceSpaceId}
-        />
-        {state.status === "ready" ? (
-          <SpaceSidebar
-            spaceId={state.space.id}
-            spaceName={state.space.name}
-            textChannels={textChannels}
-            voiceChannels={voiceChannels}
-            onChannelsChanged={() => setReloadKey((v) => v + 1)}
-            canManageChannels={
-              meState.state.status === "ready" &&
-              (meState.state.me.is_admin ||
-                meState.state.me.id === state.space.author_id)
-            }
-            canManageSpace={
-              meState.state.status === "ready" &&
-              (meState.state.me.is_admin ||
-                meState.state.me.id === state.space.author_id)
-            }
-          />
-        ) : null}
-
         <section className="flex min-w-0 flex-1 flex-col">
           <header className="border-b border-(--border) bg-(--panel) px-6 py-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -239,74 +204,118 @@ export default function SpaceSettingsPage() {
                 }
               />
             ) : (
-            <div className="max-w-3xl space-y-10">
-              <section>
-                <h2 className="text-lg font-semibold">Основное</h2>
-                <p className="mt-2 text-sm text-(--muted)">
-                  Управляй названием и визуальным образом пространства.
+            <div className="mx-auto flex max-w-5xl gap-6">
+              <div className="w-52 shrink-0 self-start rounded-2xl border border-(--border) bg-(--panel) p-3">
+                <p className="px-3 text-[11px] uppercase tracking-[0.2em] text-(--subtle)">
+                  Разделы
                 </p>
-                <div className="mt-6 rounded-2xl border border-(--border) bg-(--panel) p-6">
-                  <div className="flex flex-col gap-6 md:flex-row md:items-center">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-(--bg-2) text-xl font-semibold">
-                      Z
-                    </div>
-                    <div className="flex-1 space-y-4">
-                      <div>
-                        <label className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
-                          Название пространства
-                        </label>
-                        <input
-                          className="mt-3 w-full rounded-xl border border-(--border) bg-(--bg-2) px-4 py-3 text-sm text-(--text) outline-none transition focus:border-(--accent)"
-                          value={spaceNameDraft}
-                          onChange={(event) => {
-                            setSpaceNameDraft(event.target.value);
-                            setSpaceNameError(null);
-                          }}
-                        />
-                        {spaceNameError ? (
-                          <p className="mt-2 text-xs text-(--danger)">{spaceNameError}</p>
-                        ) : null}
+                <div className="mt-3 flex flex-col gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection("main")}
+                    className={`w-full rounded-xl px-3 py-2 text-left text-sm transition ${
+                      activeSection === "main"
+                        ? "bg-(--accent) text-black"
+                        : "text-(--muted) hover:text-(--text)"
+                    }`}
+                  >
+                    Основное
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection("members")}
+                    className={`w-full rounded-xl px-3 py-2 text-left text-sm transition ${
+                      activeSection === "members"
+                        ? "bg-(--accent) text-black"
+                        : "text-(--muted) hover:text-(--text)"
+                    }`}
+                  >
+                    Участники
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 space-y-10">
+                {activeSection === "main" ? (
+                <section>
+                  <h2 className="text-lg font-semibold">Основное</h2>
+                  <p className="mt-2 text-sm text-(--muted)">
+                    Управляй названием и визуальным образом пространства.
+                  </p>
+                  <div className="mt-6 rounded-2xl border border-(--border) bg-(--panel) p-6">
+                    <div className="flex flex-col gap-6 md:flex-row md:items-center">
+                      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-(--bg-2) text-xl font-semibold">
+                        Z
                       </div>
-                      <div className="flex flex-wrap gap-3">
-                        <button className="rounded-xl border border-(--border) px-4 py-2 text-sm text-(--muted) transition hover:text-(--accent)">
-                          Загрузить аватар
-                        </button>
-                        <button
-                          className="rounded-xl bg-(--accent) px-4 py-2 text-sm font-medium text-black transition hover:bg-(--accent-2) disabled:cursor-not-allowed disabled:opacity-70"
-                          onClick={handleSpaceNameSave}
-                          disabled={
-                            spaceNameSaving ||
-                            !spaceNameDraft.trim() ||
-                            (state.status === "ready" &&
-                              spaceNameDraft.trim() === state.space.name)
-                          }
-                        >
-                          {spaceNameSaving ? "Сохранение…" : "Сохранить"}
-                        </button>
+                      <div className="flex-1 space-y-4">
+                        <div>
+                          <label className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
+                            Название пространства
+                          </label>
+                          <input
+                            className="mt-3 w-full rounded-xl border border-(--border) bg-(--bg-2) px-4 py-3 text-sm text-(--text) outline-none transition focus:border-(--accent)"
+                            value={spaceNameDraft}
+                            onChange={(event) => {
+                              setSpaceNameDraft(event.target.value);
+                              setSpaceNameError(null);
+                            }}
+                          />
+                          {spaceNameError ? (
+                            <p className="mt-2 text-xs text-(--danger)">{spaceNameError}</p>
+                          ) : null}
+                        </div>
+                        <div className="flex flex-wrap gap-3">
+                          <button className="rounded-xl border border-(--border) px-4 py-2 text-sm text-(--muted) transition hover:text-(--accent)">
+                            Загрузить аватар
+                          </button>
+                          <button
+                            className="rounded-xl bg-(--accent) px-4 py-2 text-sm font-medium text-black transition hover:bg-(--accent-2) disabled:cursor-not-allowed disabled:opacity-70"
+                            onClick={handleSpaceNameSave}
+                            disabled={
+                              spaceNameSaving ||
+                              !spaceNameDraft.trim() ||
+                              (state.status === "ready" &&
+                                spaceNameDraft.trim() === state.space.name)
+                            }
+                          >
+                            {spaceNameSaving ? "Сохранение…" : "Сохранить"}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              </section>
+                </section>
+              ) : null}
 
-              {state.status === "loading" ? (
-                <p className="text-sm text-(--muted)">Загрузка…</p>
-              ) : state.status === "error" ? (
-                <ErrorState
-                  title={state.serverError ? "Сервис недоступен" : "Ошибка"}
-                  message={state.message}
-                  onAction={() => window.location.reload()}
-                />
-              ) : (
-                <SpaceMembersSection
-                  spaceId={spaceId}
-                  canManage={
-                    meState.state.status === "ready" &&
-                    state.status === "ready" &&
-                    meState.state.me.id === state.space.author_id
-                  }
-                />
-              )}
+                {activeSection === "members" ? (
+                <section>
+                  <h2 className="text-lg font-semibold">Участники</h2>
+                  <p className="mt-2 text-sm text-(--muted)">
+                    Управляй участниками и ролями пространства.
+                  </p>
+                  <div className="mt-6 rounded-2xl border border-(--border) bg-(--panel) p-6">
+                    {state.status === "loading" ? (
+                      <p className="text-sm text-(--muted)">Загрузка…</p>
+                    ) : state.status === "error" ? (
+                      <ErrorState
+                        title={state.serverError ? "Сервис недоступен" : "Ошибка"}
+                        message={state.message}
+                        onAction={() => window.location.reload()}
+                      />
+                    ) : (
+                      <SpaceMembersSection
+                        spaceId={spaceId}
+                        canManage={
+                          meState.state.status === "ready" &&
+                          state.status === "ready" &&
+                          meState.state.me.id === state.space.author_id
+                        }
+                      />
+                    )}
+                  </div>
+                </section>
+                ) : null}
+              </div>
             </div>
             )}
           </div>
