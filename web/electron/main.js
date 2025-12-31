@@ -13,7 +13,9 @@ const fs = require("fs");
 const { uIOhook, UiohookKey } = require("uiohook-napi");
 
 const isDev = !app.isPackaged;
-const startUrl = process.env.ELECTRON_START_URL || "http://localhost:3000";
+const startUrl = process.env.ELECTRON_START_URL || (isDev
+  ? "http://localhost:3000"
+  : "https://zzeha.ru:8443");
 const iconBasePath = path.join(__dirname, "assets");
 const iconPath = process.platform === "win32"
   ? path.join(iconBasePath, "app.ico")
