@@ -90,6 +90,15 @@ export default function SpaceRail({
         return "text-(--border)";
     }
   })();
+  const formatPttKey = (code: string) => {
+    if (code === "Mouse4") return "Mouse 4";
+    if (code === "Mouse5") return "Mouse 5";
+    if (code.startsWith("Key")) return code.slice(3);
+    if (code.startsWith("Digit")) return code.slice(5);
+    if (code === "Space") return "Space";
+    if (code.startsWith("Arrow")) return code.replace("Arrow", "Arrow ");
+    return code;
+  };
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -653,6 +662,54 @@ export default function SpaceRail({
                           </button>
                           <audio ref={micTestAudioRef} className="hidden" />
                         </div>
+                        {voiceSession.pttAvailable ? (
+                          <div className="rounded-2xl border border-(--border) bg-(--panel) px-5 py-4">
+                            <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
+                              Push-to-talk
+                            </p>
+                            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                              <div className="text-sm">
+                                {voiceSession.pttEnabled
+                                  ? voiceSession.micMuted
+                                    ? "Микрофон выключен"
+                                    : voiceSession.pttActive
+                                      ? "Говорите…"
+                                      : "Удерживайте для речи"
+                                  : "Отключено"}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  voiceSession.setPttEnabled(!voiceSession.pttEnabled)
+                                }
+                                className={`rounded-full border px-3 py-1 text-xs transition ${
+                                  voiceSession.pttEnabled
+                                    ? "border-(--accent) text-(--accent)"
+                                    : "border-(--border) text-(--muted) hover:text-(--accent)"
+                                }`}
+                              >
+                                {voiceSession.pttEnabled ? "Вкл" : "Выкл"}
+                              </button>
+                            </div>
+                            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-(--muted)">
+                              <span>
+                                Клавиша:{" "}
+                                <span className="text-(--text)">
+                                  {formatPttKey(voiceSession.pttKey) || "Не задана"}
+                                </span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => voiceSession.setCapturingPttKey(true)}
+                                className="rounded-full border border-(--border) px-2 py-1 text-xs text-(--muted) transition hover:text-(--accent)"
+                              >
+                                {voiceSession.capturingPttKey
+                                  ? "Нажмите клавишу или кнопку мыши…"
+                                  : "Изменить"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     ) : (
                       <div className="rounded-2xl border border-(--border) bg-(--panel) px-5 py-4 text-sm text-(--muted)">
@@ -847,7 +904,7 @@ export default function SpaceRail({
               label={
                 voiceSession.incomingMuted ? "Включить звук" : "Выключить звук"
               }
-              side="left"
+              side="top"
             >
               <button
                 type="button"

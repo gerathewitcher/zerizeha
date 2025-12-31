@@ -29,13 +29,6 @@ type VoicePanelProps = {
   onVolumeChange?: (userId: string, volume: number) => void;
   mobileOpen?: boolean;
   onCloseMobile?: () => void;
-  pttAvailable?: boolean;
-  pttEnabled?: boolean;
-  pttActive?: boolean;
-  pttKeyLabel?: string;
-  capturingPttKey?: boolean;
-  onTogglePtt?: () => void;
-  onRequestPttKey?: () => void;
   micMuted?: boolean;
   onToggleMute?: () => void;
   incomingMuted?: boolean;
@@ -88,13 +81,6 @@ export default function VoicePanel({
   onVolumeChange,
   mobileOpen = false,
   onCloseMobile,
-  pttAvailable = false,
-  pttEnabled = false,
-  pttActive = false,
-  pttKeyLabel,
-  capturingPttKey = false,
-  onTogglePtt,
-  onRequestPttKey,
   micMuted = false,
   onToggleMute,
   incomingMuted = false,
@@ -710,57 +696,6 @@ export default function VoicePanel({
         </div>
 
         <div className="border-t border-(--border) px-6 py-5">
-          {pttAvailable ? (
-            <div className="mb-4 rounded-xl border border-(--border) bg-(--panel-2) px-3 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
-                    Push-to-talk
-                  </p>
-                  <p className="mt-1 text-sm">
-                    {pttEnabled
-                      ? micMuted
-                        ? "Микрофон выключен"
-                        : pttActive
-                          ? "Говорите…"
-                          : "Удерживайте для речи"
-                      : "Отключено"}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={onTogglePtt}
-                  disabled={!controlsEnabled || !onTogglePtt}
-                  className={`rounded-full border px-3 py-1 text-xs transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                    pttEnabled
-                      ? "border-(--accent) text-(--accent)"
-                      : "border-(--border) text-(--muted) hover:text-(--accent)"
-                  }`}
-                >
-                  {pttEnabled ? "Вкл" : "Выкл"}
-                </button>
-              </div>
-              <div className="mt-3 flex items-center justify-between gap-3 text-xs text-(--muted)">
-                <span>
-                  Клавиша:{" "}
-                  <span className="text-(--text)">
-                    {pttKeyLabel || "Не задана"}
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  onClick={onRequestPttKey}
-                  disabled={!controlsEnabled || !onRequestPttKey}
-                  className="rounded-full border border-(--border) px-2 py-1 text-xs text-(--muted) transition hover:text-(--accent) disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {capturingPttKey
-                    ? "Нажмите клавишу или кнопку мыши…"
-                    : "Изменить"}
-                </button>
-              </div>
-            </div>
-          ) : null}
-
           <div className="flex flex-wrap items-center justify-center gap-2">
             <Tooltip label={micMuted ? "Включить микрофон" : "Выключить микрофон"}>
               <button

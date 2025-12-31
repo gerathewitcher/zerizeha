@@ -178,6 +178,7 @@ export default function VoiceSessionProvider({
   const lastLeaveSoundAtRef = useRef(0);
   const switchingChannelRef = useRef(false);
   const suppressMemberSoundsUntilRef = useRef(0);
+  const lastUsernameRef = useRef<string | null>(null);
 
   const meSummary = useMemo(() => {
     if (meState.state.status !== "ready") return null;
@@ -197,6 +198,26 @@ export default function VoiceSessionProvider({
     joinSoundRef.current = new Audio("/sounds/join.wav");
     leaveSoundRef.current = new Audio("/sounds/leave.wav");
   }, []);
+
+  useEffect(() => {
+    const username = meSummary?.username ?? null;
+    if (lastUsernameRef.current === null) {
+      lastUsernameRef.current = username;
+      return;
+    }
+    if (lastUsernameRef.current === username) return;
+    lastUsernameRef.current = username;
+    if (!activeVoiceChannelId) return;
+    const members = voiceMembersByChannelId[activeVoiceChannelId];
+    if (!members) return;
+    const currentIds = new Set(
+      members
+        .map((member) => member.id)
+        .filter((id) => id !== meSummary?.id),
+    );
+    prevMembersRef.current = currentIds;
+    suppressMemberSoundsUntilRef.current = Date.now() + 900;
+  }, [activeVoiceChannelId, meSummary?.id, meSummary?.username, voiceMembersByChannelId]);
 
   useEffect(() => {
     const channelId = activeVoiceChannelId;

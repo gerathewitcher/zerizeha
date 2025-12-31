@@ -44,11 +44,6 @@ export default function SpacePage() {
   const mutedUserIds = voiceSession.mutedUserIds;
   const micMuted = voiceSession.micMuted;
   const incomingMuted = voiceSession.incomingMuted;
-  const pttAvailable = voiceSession.pttAvailable;
-  const pttEnabled = voiceSession.pttEnabled;
-  const pttActive = voiceSession.pttActive;
-  const pttKey = voiceSession.pttKey;
-  const capturingPttKey = voiceSession.capturingPttKey;
   const voicePanelExpanded = voiceSession.voicePanelExpanded;
   const voiceReady = voiceSession.voiceReady;
   const activeVoiceChannelId = voiceSession.activeVoiceChannelId;
@@ -61,16 +56,6 @@ export default function SpacePage() {
   const screenShares = voiceSession.screenShares;
   const selectedScreenFeedId = voiceSession.selectedScreenFeedId;
   const focusedUserId = voiceSession.focusedUserId;
-
-  const formatPttKey = (code: string) => {
-    if (code === "Mouse4") return "Mouse 4";
-    if (code === "Mouse5") return "Mouse 5";
-    if (code.startsWith("Key")) return code.slice(3);
-    if (code.startsWith("Digit")) return code.slice(5);
-    if (code === "Space") return "Space";
-    if (code.startsWith("Arrow")) return code.replace("Arrow", "Arrow ");
-    return code;
-  };
 
 
   useEffect(() => {
@@ -446,13 +431,6 @@ export default function SpacePage() {
                 onFocusUser={voiceSession.focusUser}
                 volumeByUserId={volumeByUserId}
                 onVolumeChange={voiceSession.setVolume}
-                pttAvailable={pttAvailable}
-                pttEnabled={pttEnabled}
-                pttActive={pttActive}
-                pttKeyLabel={formatPttKey(pttKey)}
-                capturingPttKey={capturingPttKey}
-                onTogglePtt={() => voiceSession.setPttEnabled(!pttEnabled)}
-                onRequestPttKey={() => voiceSession.setCapturingPttKey(true)}
                 micMuted={micMuted}
                 onToggleMute={() => voiceSession.setMicMuted(!micMuted)}
                 incomingMuted={incomingMuted}
