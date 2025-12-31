@@ -121,7 +121,7 @@ func (h *Handler) VoiceWebRTCBootstrap(c *fiber.Ctx, id string) error {
 		}
 	}
 
-	conn := h.webrtc.New(webrtcConn{
+	conn := h.webrtc.New(&webrtcConn{
 		UserID:            userID,
 		ChannelID:         channelID,
 		RoomID:            channelID,

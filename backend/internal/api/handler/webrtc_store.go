@@ -41,7 +41,10 @@ func newWebRTCStore() *webrtcStore {
 	return &webrtcStore{conns: make(map[string]*webrtcConn)}
 }
 
-func (s *webrtcStore) New(conn webrtcConn) *webrtcConn {
+func (s *webrtcStore) New(conn *webrtcConn) *webrtcConn {
+	if conn == nil {
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -55,9 +58,8 @@ func (s *webrtcStore) New(conn webrtcConn) *webrtcConn {
 		conn.SubscriberHandlesByFeed = make(map[string]int64)
 	}
 
-	c := conn
-	s.conns[c.ID] = &c
-	return &c
+	s.conns[conn.ID] = conn
+	return conn
 }
 
 func (s *webrtcStore) Get(id string) (*webrtcConn, bool) {

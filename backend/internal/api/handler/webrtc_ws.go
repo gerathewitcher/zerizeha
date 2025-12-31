@@ -156,11 +156,12 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 
 					target := "unknown"
 					var feedID string
-					if handleID == conn.PublisherHandleID {
+					switch handleID {
+					case conn.PublisherHandleID:
 						target = "publisher"
-					} else if handleID == conn.ScreenHandleID {
+					case conn.ScreenHandleID:
 						target = "screen_publisher"
-					} else {
+					default:
 						conn.mu.Lock()
 						for feed, hID := range conn.SubscriberHandlesByFeed {
 							if hID == handleID {
@@ -536,11 +537,12 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 			}
 
 			handleID := conn.PublisherHandleID
-			if payload.Target == "subscriber" {
+			switch payload.Target {
+			case "subscriber":
 				conn.mu.Lock()
 				handleID = conn.SubscriberHandlesByFeed[payload.FeedID]
 				conn.mu.Unlock()
-			} else if payload.Target == "screen_publisher" {
+			case "screen_publisher":
 				handleID = conn.ScreenHandleID
 			}
 			if handleID == 0 {
