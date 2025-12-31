@@ -1,7 +1,8 @@
 {
-  "name": "web",
+  "name": "zerizeha",
   "version": "0.1.0",
   "main": "electron/main.js",
+  "homepage": "https://zzeha.ru:8443",
   "private": true,
     "author": {
     "name": "Aytek Gerandokov",
