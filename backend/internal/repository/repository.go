@@ -10,6 +10,7 @@ type UserRepository interface {
 	GetUsersByIDs(ids []string) ([]dto.User, error)
 	SearchUsers(query string, limit int, cursor *dto.UserSearchCursor, confirmedOnly bool, confirmedFilter *bool) ([]dto.User, *dto.UserSearchCursor, error)
 	SetUserConfirmed(id string, confirmed bool, confirmedBy string) error
+	UpdateUserInfo(id string, user dto.UserToUpdate) error
 	SyncAdminsByEmails(emails []string) error
 }
 

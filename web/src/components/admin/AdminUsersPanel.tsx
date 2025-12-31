@@ -32,13 +32,13 @@ export default function AdminUsersPanel({
   const meState = useMe();
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
 
-  const handleUnauthenticated = () => {
+  const handleUnauthenticated = useCallback(() => {
     if (onUnauthenticated) onUnauthenticated();
-  };
+  }, [onUnauthenticated]);
 
-  const handleUnauthorized = () => {
+  const handleUnauthorized = useCallback(() => {
     if (onUnauthorized) onUnauthorized();
-  };
+  }, [onUnauthorized]);
 
   const load = useCallback((opts?: { query?: string }) => {
     const controller = new AbortController();
@@ -81,7 +81,7 @@ export default function AdminUsersPanel({
       });
 
     return () => controller.abort();
-  }, []);
+  }, [handleUnauthenticated, handleUnauthorized]);
 
   useEffect(() => {
     if (meState.state.status === "loading") return;
@@ -98,7 +98,14 @@ export default function AdminUsersPanel({
     if (meState.state.status === "ready" && meState.state.me.is_admin) {
       load();
     }
-  }, [handleUnauthenticated, handleUnauthorized, load, meState.state]);
+  }, [
+    handleUnauthenticated,
+    handleUnauthorized,
+    load,
+    meState.state.httpStatus,
+    meState.state.me?.is_admin,
+    meState.state.status,
+  ]);
 
   const setQuery = useCallback(
     (value: string) => {

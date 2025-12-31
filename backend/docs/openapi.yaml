@@ -299,6 +299,44 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorMap'
+    patch:
+      operationId: UpdateMe
+      summary: update current user
+      tags:
+        - Users
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MeToUpdate'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
 
   /api/users/search:
     get:
@@ -1241,6 +1279,14 @@ components:
         created_at:
           type: string
           format: date-time
+      additionalProperties: false
+    MeToUpdate:
+      type: object
+      required:
+        - username
+      properties:
+        username:
+          type: string
       additionalProperties: false
 
     Space:

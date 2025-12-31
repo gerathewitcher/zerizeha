@@ -234,6 +234,41 @@ func (r *repo) SetUserConfirmed(id string, confirmed bool, confirmedBy string) e
 	return nil
 }
 
+func (r *repo) UpdateUserInfo(id string, user dto.UserToUpdate) error {
+	queryBuilder := sq.Update("users").
+		Where(sq.Eq{"id": id}).
+		PlaceholderFormat(sq.Dollar)
+
+	hasUpdates := false
+	if user.Username != nil {
+		queryBuilder = queryBuilder.Set("username", strings.TrimSpace(*user.Username))
+		hasUpdates = true
+	}
+
+	if !hasUpdates {
+		return nil
+	}
+
+	queryRaw, args, err := queryBuilder.ToSql()
+	if err != nil {
+		return err
+	}
+
+	query := db.Query{
+		Name:     "user.update_username",
+		QueryRaw: queryRaw,
+	}
+
+	tag, err := r.db.DB().ExecContext(context.Background(), query, args...)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
 func (r *repo) SyncAdminsByEmails(emails []string) error {
 	// Always drop existing admin flags to keep DB in sync with env.
 	query := db.Query{

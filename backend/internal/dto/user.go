@@ -18,6 +18,10 @@ type UserToCreate struct {
 	Email    string `json:"email"`
 }
 
+type UserToUpdate struct {
+	Username *string `json:"username,omitempty"`
+}
+
 type UserSearchCursor struct {
 	CreatedAt time.Time `json:"created_at"`
 	ID        string    `json:"id"`

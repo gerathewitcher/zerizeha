@@ -42,6 +42,10 @@ func (s *serv) SetUserConfirmed(id string, confirmed bool, confirmedBy string) e
 	return s.repo.SetUserConfirmed(id, confirmed, confirmedBy)
 }
 
+func (s *serv) UpdateUserInfo(id string, user dto.UserToUpdate) error {
+	return s.repo.UpdateUserInfo(id, user)
+}
+
 func (s *serv) SyncAdminsByEmails(emails []string) error {
 	return s.repo.SyncAdminsByEmails(emails)
 }
