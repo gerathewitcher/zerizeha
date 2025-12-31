@@ -4,10 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import CreateSpaceModal from "@/components/spaces/CreateSpaceModal";
-import Modal from "@/components/ui/Modal";
 import Tooltip from "@/components/ui/Tooltip";
 import { useMe } from "@/lib/me";
 import { useVoiceSession } from "@/components/spaces/VoiceSessionProvider";
+import AdminUsersPanel from "@/components/admin/AdminUsersPanel";
 
 type SpaceItem = {
   id: string;
@@ -35,6 +35,9 @@ export default function SpaceRail({
 }: SpaceRailProps) {
   const [createOpen, setCreateOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<"account" | "admin">(
+    "account",
+  );
   const pathname = usePathname();
   const meState = useMe();
   const voiceSession = useVoiceSession();
@@ -165,43 +168,127 @@ export default function SpaceRail({
         open={createOpen}
         onClose={() => setCreateOpen(false)}
       />
-      <Modal
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        title="Настройки"
-      >
-        <div className="flex flex-col gap-2">
+      {settingsOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-6 py-10">
           <button
-            type="button"
-            className="flex items-center gap-2 rounded-xl border border-(--border) px-3 py-2 text-[11px] text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
-          >
-            <span className="text-sm">👤</span>
-            Учетная запись
-          </button>
-          {resolvedIsAdmin ? (
-            <Link
-              href="/admin/users"
-              className="flex items-center gap-2 rounded-xl border border-(--border) px-3 py-2 text-[11px] text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
-            >
-              <span className="text-sm">⚙</span>
-              Админ панель
-            </Link>
-          ) : null}
-        </div>
-        {onLogout ? (
-          <div className="mt-4 border-t border-(--border) pt-4">
-            <button
-              type="button"
-              onClick={onLogout}
-              disabled={loggingOut}
-              className="flex w-full items-center gap-2 rounded-xl border border-(--danger) px-3 py-2 text-[11px] text-(--danger) transition hover:border-red-500/80 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <span className="text-sm">⤴</span>
-              {loggingOut ? "Выход..." : "Выйти"}
-            </button>
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setSettingsOpen(false)}
+            aria-label="Закрыть настройки"
+          />
+          <div className="relative flex h-[80vh] w-full max-w-5xl overflow-hidden rounded-2xl border border-(--border) bg-(--panel) shadow-(--shadow-2)">
+            <aside className="flex w-64 flex-col border-r border-(--border) bg-(--panel)">
+              <div className="px-5 py-5">
+                <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
+                  Настройки
+                </p>
+                <h3 className="mt-2 font-(--font-display) text-xl">
+                  {meState.state.status === "ready"
+                    ? meState.state.me.username || "Профиль"
+                    : "Профиль"}
+                </h3>
+              </div>
+              <div className="flex flex-1 flex-col gap-2 px-4">
+                <button
+                  type="button"
+                  onClick={() => setSettingsSection("account")}
+                  className={`flex items-center gap-3 rounded-xl border px-3 py-2 text-[11px] uppercase tracking-[0.2em] transition ${
+                    settingsSection === "account"
+                      ? "border-(--accent) text-(--accent)"
+                      : "border-(--border) text-(--muted) hover:border-(--accent) hover:text-(--accent)"
+                  }`}
+                >
+                  <span className="text-base">👤</span>
+                  Учетная запись
+                </button>
+                {resolvedIsAdmin ? (
+                  <button
+                    type="button"
+                    onClick={() => setSettingsSection("admin")}
+                    className={`flex items-center gap-3 rounded-xl border px-3 py-2 text-[11px] uppercase tracking-[0.2em] transition ${
+                      settingsSection === "admin"
+                        ? "border-(--accent) text-(--accent)"
+                        : "border-(--border) text-(--muted) hover:border-(--accent) hover:text-(--accent)"
+                    }`}
+                  >
+                    <span className="text-base">⚙</span>
+                    Админ панель
+                  </button>
+                ) : null}
+              </div>
+              {onLogout ? (
+                <div className="border-t border-(--border) p-4">
+                  <button
+                    type="button"
+                    onClick={onLogout}
+                    disabled={loggingOut}
+                    className="flex w-full items-center gap-2 rounded-xl border border-(--danger) px-3 py-2 text-[11px] text-(--danger) transition hover:border-red-500/80 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <span className="text-sm">⤴</span>
+                    {loggingOut ? "Выход..." : "Выйти"}
+                  </button>
+                </div>
+              ) : null}
+            </aside>
+            <section className="flex-1 overflow-y-auto px-8 py-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
+                    {settingsSection === "admin" ? "Admin" : "Профиль"}
+                  </p>
+                  <h4 className="mt-2 font-(--font-display) text-2xl">
+                    {settingsSection === "admin"
+                      ? "Пользователи"
+                      : "Учетная запись"}
+                  </h4>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSettingsOpen(false)}
+                  className="rounded-xl border border-(--border) px-3 py-2 text-xs text-(--muted) transition hover:text-(--accent)"
+                >
+                  Закрыть
+                </button>
+              </div>
+
+              <div className="mt-6">
+                {settingsSection === "account" ? (
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border border-(--border) bg-(--panel) px-5 py-4">
+                      <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
+                        Профиль
+                      </p>
+                      <div className="mt-4 grid gap-3 text-sm">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
+                            Имя
+                          </p>
+                          <p className="mt-1 text-(--text)">
+                            {meState.state.status === "ready"
+                              ? meState.state.me.username || "user"
+                              : "—"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
+                            Email
+                          </p>
+                          <p className="mt-1 text-(--text)">
+                            {meState.state.status === "ready"
+                              ? meState.state.me.email || "—"
+                              : "—"}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <AdminUsersPanel />
+                )}
+              </div>
+            </section>
           </div>
-        ) : null}
-      </Modal>
+        </div>
+      ) : null}
       </aside>
       <div className="fixed bottom-6 left-6 z-50 hidden w-[340px] flex-col gap-2 rounded-2xl border border-(--border) bg-(--panel) px-3 py-2 shadow-(--shadow-2) lg:flex">
         {hasVoice ? (
@@ -438,7 +525,10 @@ export default function SpaceRail({
               <button
                 type="button"
                 className="flex h-9 w-9 items-center justify-center rounded-xl border border-(--border) text-(--muted) transition hover:border-(--accent) hover:text-(--accent)"
-                onClick={() => setSettingsOpen(true)}
+                onClick={() => {
+                  setSettingsSection("account");
+                  setSettingsOpen(true);
+                }}
                 aria-label="Настройки"
               >
               <svg
