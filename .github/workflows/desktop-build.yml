@@ -2,6 +2,17 @@ name: Desktop Build
 
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish release to GitHub"
+        required: false
+        default: "false"
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -28,7 +39,18 @@ jobs:
         run: npm ci
 
       - name: Build desktop app
-        run: npm run electron:build -- --publish=never
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ inputs.publish }}" = "true" ]; then
+              npm run electron:build -- --publish=always
+            else
+              npm run electron:build -- --publish=never
+            fi
+          else
+            npm run electron:build -- --publish=always
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
