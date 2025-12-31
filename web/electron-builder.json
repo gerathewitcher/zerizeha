@@ -12,6 +12,13 @@
     "package.json"
   ],
   "asar": true,
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "gerathewitcher",
+      "repo": "zerizeha"
+    }
+  ],
   "linux": {
     "target": [
       "AppImage",

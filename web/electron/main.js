@@ -8,6 +8,7 @@ const {
   Menu,
   nativeImage,
 } = require("electron");
+const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
 const { uIOhook, UiohookKey } = require("uiohook-napi");
@@ -237,6 +238,13 @@ app.whenReady().then(async () => {
   }
   createWindow();
   createTray();
+  if (!isDev) {
+    try {
+      autoUpdater.checkForUpdatesAndNotify();
+    } catch {
+      // ignore
+    }
+  }
 });
 
 ipcMain.handle("ptt:set-enabled", (_event, enabled) => {
