@@ -5,6 +5,7 @@ import ErrorState from "@/components/ui/ErrorState";
 import { listAdminUsers, updateAdminUser } from "@/lib/api/generated/zerizeha-components";
 import { getHttpStatus } from "@/lib/api/errors";
 import type { User } from "@/lib/api/generated/zerizeha-schemas";
+import type { ListAdminUsersQueryParams } from "@/lib/api/generated/zerizeha-components";
 import { useMe } from "@/lib/me";
 
 type ViewState =
@@ -29,8 +30,20 @@ export default function AdminUsersPanel({
   onUnauthorized,
 }: AdminUsersPanelProps) {
   const [state, setState] = useState<ViewState>({ status: "loading" });
+  const [queryValue, setQueryValue] = useState("");
+  const [searching, setSearching] = useState(false);
   const meState = useMe();
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
+  const lastQueryRef = useRef<string>("");
+  const buildQueryParams = (
+    query?: string,
+    cursor?: string,
+  ): ListAdminUsersQueryParams => {
+    const params: ListAdminUsersQueryParams = { limit: 30 };
+    if (query) params.query = query;
+    if (cursor) params.cursor = cursor;
+    return params;
+  };
 
   const handleUnauthenticated = useCallback(() => {
     if (onUnauthenticated) onUnauthenticated();
@@ -42,14 +55,18 @@ export default function AdminUsersPanel({
 
   const load = useCallback((opts?: { query?: string }) => {
     const controller = new AbortController();
-    setState({ status: "loading" });
+    if (state.status === "ready") {
+      setSearching(true);
+    } else {
+      setState({ status: "loading" });
+    }
 
-    const query = opts?.query ?? "";
-    listAdminUsers(
-      { queryParams: { query: query || undefined, limit: 30 } },
-      controller.signal,
-    )
-      .then((page) =>
+    const query = opts?.query ?? queryValue;
+    setQueryValue(query);
+    lastQueryRef.current = query;
+    listAdminUsers({ queryParams: buildQueryParams(query) }, controller.signal)
+      .then((page) => {
+        setSearching(false);
         setState({
           status: "ready",
           users: page.items,
@@ -57,10 +74,11 @@ export default function AdminUsersPanel({
           nextCursor: page.next_cursor,
           query,
           loadingMore: false,
-        }),
-      )
+        });
+      })
       .catch((err) => {
         console.error("Failed to load admin users", err);
+        setSearching(false);
         const status = getHttpStatus(err);
         if (status === 401) {
           handleUnauthenticated();
@@ -70,18 +88,20 @@ export default function AdminUsersPanel({
           handleUnauthorized();
           return;
         }
-        setState({
-          status: "error",
-          serverError: typeof status === "number" && status >= 500,
-          message:
-            typeof status === "number" && status >= 500
-              ? "Сервер временно недоступен. Попробуйте повторить позже."
-              : "Не удалось загрузить список пользователей.",
-        });
+        if (state.status !== "ready") {
+          setState({
+            status: "error",
+            serverError: typeof status === "number" && status >= 500,
+            message:
+              typeof status === "number" && status >= 500
+                ? "Сервер временно недоступен. Попробуйте повторить позже."
+                : "Не удалось загрузить список пользователей.",
+          });
+        }
       });
 
     return () => controller.abort();
-  }, [handleUnauthenticated, handleUnauthorized]);
+  }, [handleUnauthenticated, handleUnauthorized, state.status]);
 
   useEffect(() => {
     if (meState.state.status === "loading") return;
@@ -96,6 +116,7 @@ export default function AdminUsersPanel({
       return;
     }
     if (meState.state.status === "ready" && meState.state.me.is_admin) {
+      lastQueryRef.current = "";
       load();
     }
   }, [
@@ -107,20 +128,22 @@ export default function AdminUsersPanel({
     meState.state.status,
   ]);
 
-  const setQuery = useCallback(
-    (value: string) => {
-      if (state.status !== "ready") return;
-      setState((prev) =>
-        prev.status === "ready" ? { ...prev, query: value } : prev,
-      );
-    },
-    [state.status],
-  );
+  const setQuery = useCallback((value: string) => {
+    setQueryValue(value);
+  }, []);
 
   const applyQuery = useCallback(() => {
+    load({ query: queryValue });
+  }, [load, queryValue]);
+
+  useEffect(() => {
     if (state.status !== "ready") return;
-    load({ query: state.query });
-  }, [load, state]);
+    if (queryValue === lastQueryRef.current) return;
+    const handle = window.setTimeout(() => {
+      load({ query: queryValue });
+    }, 500);
+    return () => window.clearTimeout(handle);
+  }, [load, queryValue, state.status]);
 
   const loadMore = useCallback(() => {
     if (state.status !== "ready") return;
@@ -132,13 +155,7 @@ export default function AdminUsersPanel({
     );
 
     listAdminUsers(
-      {
-        queryParams: {
-          query: state.query || undefined,
-          limit: 30,
-          cursor: state.nextCursor,
-        },
-      },
+      { queryParams: buildQueryParams(queryValue, state.nextCursor) },
       controller.signal,
     )
       .then((page) => {
@@ -205,7 +222,7 @@ export default function AdminUsersPanel({
         body: { confirmed: !user.confirmed },
       });
       const page = await listAdminUsers({
-        queryParams: { query: state.query || undefined, limit: 30 },
+        queryParams: buildQueryParams(queryValue),
       });
       setState({
         status: "ready",
@@ -259,102 +276,100 @@ export default function AdminUsersPanel({
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex-1">
+          <label className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
+            Поиск
+          </label>
+          <input
+            value={queryValue}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="username или email"
+            className="mt-3 w-full rounded-xl border border-(--border) bg-(--bg-2) px-4 py-3 text-sm text-(--text) outline-none transition focus:border-(--accent)"
+          />
+        </div>
+        <button
+          className="rounded-xl bg-(--accent) px-5 py-3 text-sm font-medium text-black transition hover:bg-(--accent-2) disabled:opacity-60"
+          onClick={applyQuery}
+          disabled={state.status !== "ready"}
+        >
+          Найти
+        </button>
+      </div>
       {state.status === "loading" ? (
         <p className="text-sm text-(--muted)">Загрузка…</p>
-      ) : (
-        <>
-          {state.status === "ready" ? (
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div className="flex-1">
-                <label className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
-                  Поиск
-                </label>
-                <input
-                  value={state.query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="username или email"
-                  className="mt-3 w-full rounded-xl border border-(--border) bg-(--bg-2) px-4 py-3 text-sm text-(--text) outline-none transition focus:border-(--accent)"
-                />
-              </div>
-              <button
-                className="rounded-xl bg-(--accent) px-5 py-3 text-sm font-medium text-black transition hover:bg-(--accent-2)"
-                onClick={applyQuery}
-              >
-                Найти
-              </button>
-            </div>
-          ) : null}
+      ) : searching ? (
+        <p className="text-sm text-(--muted)">Поиск…</p>
+      ) : null}
 
-          <div className="overflow-hidden rounded-2xl border border-(--border) bg-(--panel)">
-            <div className="grid grid-cols-[1.2fr_0.9fr_0.7fr_0.7fr] gap-3 border-b border-(--border) px-5 py-3 text-xs uppercase tracking-[0.2em] text-(--subtle)">
-              <div>Email</div>
-              <div>Username</div>
-              <div>Confirmed</div>
-              <div>Admin</div>
-            </div>
-            <div className="divide-y divide-(--border)">
-              {state.status === "ready"
-                ? state.users.map((user) => {
-                  const id = user.id ?? "";
-                  const busy =
-                    state.status === "ready"
-                      ? state.updating[id] === true
-                      : false;
+      <div className="overflow-hidden rounded-2xl border border-(--border) bg-(--panel)">
+        <div className="grid grid-cols-[1.2fr_0.9fr_0.7fr_0.7fr] gap-3 border-b border-(--border) px-5 py-3 text-xs uppercase tracking-[0.2em] text-(--subtle)">
+          <div>Email</div>
+          <div>Username</div>
+          <div>Confirmed</div>
+          <div>Admin</div>
+        </div>
+        <div className="divide-y divide-(--border)">
+          {state.status === "ready"
+            ? state.users.map((user) => {
+              const id = user.id ?? "";
+              const busy =
+                state.status === "ready"
+                  ? state.updating[id] === true
+                  : false;
 
-                  return (
-                    <div
-                      key={id || user.email}
-                      className="grid grid-cols-[1.2fr_0.9fr_0.7fr_0.7fr] gap-3 px-5 py-4 text-sm"
+              return (
+                <div
+                  key={id || user.email}
+                  className="grid grid-cols-[1.2fr_0.9fr_0.7fr_0.7fr] gap-3 px-5 py-4 text-sm"
+                >
+                  <div className="truncate">{user.email}</div>
+                  <div className="truncate text-(--muted)">
+                    {user.username}
+                  </div>
+                  <div>
+                    <button
+                      className={`rounded-lg border px-3 py-1 text-xs transition ${
+                        user.confirmed
+                          ? "border-(--accent) text-(--accent)"
+                          : "border-(--border) text-(--muted) hover:text-(--accent)"
+                      }`}
+                      disabled={busy || user.is_admin}
+                      onClick={() => toggleConfirmed(user)}
+                      title={
+                        user.is_admin
+                          ? "Админы подтверждаются автоматически"
+                          : ""
+                      }
                     >
-                      <div className="truncate">{user.email}</div>
-                      <div className="truncate text-(--muted)">
-                        {user.username}
-                      </div>
-                      <div>
-                        <button
-                          className={`rounded-lg border px-3 py-1 text-xs transition ${
-                            user.confirmed
-                              ? "border-(--accent) text-(--accent)"
-                              : "border-(--border) text-(--muted) hover:text-(--accent)"
-                          }`}
-                          disabled={busy || user.is_admin}
-                          onClick={() => toggleConfirmed(user)}
-                          title={
-                            user.is_admin
-                              ? "Админы подтверждаются автоматически"
-                              : ""
-                          }
-                        >
-                          {busy ? "…" : user.confirmed ? "да" : "нет"}
-                        </button>
-                      </div>
-                      <div className="text-xs text-(--muted)">
-                        {user.is_admin ? "да" : "нет"}
-                      </div>
-                    </div>
-                  );
-                })
-                : null}
-            </div>
-          </div>
+                      {busy ? "…" : user.confirmed ? "да" : "нет"}
+                    </button>
+                  </div>
+                  <div className="text-xs text-(--muted)">
+                    {user.is_admin ? "да" : "нет"}
+                  </div>
+                </div>
+              );
+            })
+            : null}
+        </div>
+      </div>
 
-          {state.status === "ready" && state.nextCursor ? (
-            <div className="flex justify-center">
-              <button
-                className="rounded-xl border border-(--border) px-4 py-2 text-sm text-(--muted) transition hover:text-(--accent) disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={loadMore}
-                disabled={state.loadingMore}
-              >
-                {state.loadingMore ? "Загрузка…" : "Показать ещё"}
-              </button>
-            </div>
-          ) : null}
+      {state.status === "ready" && state.nextCursor ? (
+        <div className="flex justify-center">
+          <button
+            className="rounded-xl border border-(--border) px-4 py-2 text-sm text-(--muted) transition hover:text-(--accent) disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={loadMore}
+            disabled={state.loadingMore}
+          >
+            {state.loadingMore ? "Загрузка…" : "Показать ещё"}
+          </button>
+        </div>
+      ) : null}
 
-          {state.status === "ready" && state.nextCursor ? (
-            <div ref={loadMoreSentinelRef} className="h-1 w-full" />
-          ) : null}
-        </>
-      )}
+      {state.status === "ready" && state.nextCursor ? (
+        <div ref={loadMoreSentinelRef} className="h-1 w-full" />
+      ) : null}
     </div>
   );
 }
