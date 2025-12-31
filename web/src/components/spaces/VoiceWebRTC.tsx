@@ -111,9 +111,13 @@ const parseDisplay = (
 function RemoteAudio({
   stream,
   volume,
+  outputDeviceId,
+  outputLevel,
 }: {
   stream: MediaStream;
   volume: number;
+  outputDeviceId: string | null;
+  outputLevel: number;
 }) {
   const ref = useRef<HTMLAudioElement | null>(null);
 
@@ -134,8 +138,17 @@ function RemoteAudio({
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.volume = Math.max(0, Math.min(1, volume));
-  }, [volume]);
+    el.volume = Math.max(0, Math.min(1, volume * outputLevel));
+  }, [volume, outputLevel]);
+
+  useEffect(() => {
+    const el = ref.current as HTMLAudioElement & {
+      setSinkId?: (id: string) => Promise<void>;
+    };
+    if (!el || !el.setSinkId) return;
+    if (!outputDeviceId) return;
+    el.setSinkId(outputDeviceId).catch(() => {});
+  }, [outputDeviceId]);
 
   return <audio ref={ref} autoPlay playsInline className="hidden" />;
 }
@@ -251,6 +264,10 @@ type VoiceWebRTCProps = {
   selfUserId?: string | null;
   micEnabled?: boolean;
   outputMuted?: boolean;
+  inputDeviceId?: string | null;
+  outputDeviceId?: string | null;
+  micLevel?: number;
+  outputLevel?: number;
   onLocalScreenStream?: (stream: MediaStream | null) => void;
   onRemoteScreenStream?: (feedId: string, userId: string, stream: MediaStream) => void;
   onRemoteScreenStreamRemoved?: (feedId: string) => void;
@@ -271,6 +288,10 @@ export default function VoiceWebRTC({
   selfUserId,
   micEnabled = true,
   outputMuted = false,
+  inputDeviceId = null,
+  outputDeviceId = null,
+  micLevel = 1,
+  outputLevel = 1,
   onLocalScreenStream,
   onRemoteScreenStream,
   onRemoteScreenStreamRemoved,
@@ -296,6 +317,7 @@ export default function VoiceWebRTC({
   }, [onSpeaking]);
 
   const localStreamRef = useRef<MediaStream | null>(null);
+  const publishTrackRef = useRef<MediaStreamTrack | null>(null);
   const publisherPcRef = useRef<RTCPeerConnection | null>(null);
   const ensureSubscriberRef = useRef<((feedId: string) => void) | undefined>(
     undefined,
@@ -318,7 +340,19 @@ export default function VoiceWebRTC({
     for (const track of stream.getAudioTracks()) {
       track.enabled = micEnabled;
     }
+    if (publishTrackRef.current) {
+      publishTrackRef.current.enabled = micEnabled;
+    }
   }, [micEnabled]);
+
+  const micGainRef = useRef<GainNode | null>(null);
+  const micLevelRef = useRef<number>(micLevel);
+  useEffect(() => {
+    micLevelRef.current = micLevel;
+    if (micGainRef.current) {
+      micGainRef.current.gain.value = micLevel;
+    }
+  }, [micLevel]);
 
   const screenShareEnabledRef = useRef<boolean>(screenShareEnabled);
   useEffect(() => {
@@ -468,6 +502,7 @@ export default function VoiceWebRTC({
         }
       }
       audioCtx = null;
+      micGainRef.current = null;
 
       if (statsTimer) {
         window.clearInterval(statsTimer);
@@ -514,6 +549,7 @@ export default function VoiceWebRTC({
       }
       localStream = null;
       localStreamRef.current = null;
+      publishTrackRef.current = null;
       onConnectionQualityRef.current?.("unknown");
       setRemoteTracks([]);
       ensureSubscriberRef.current = undefined;
@@ -1014,10 +1050,18 @@ export default function VoiceWebRTC({
         }
         notifyScreenShares();
 
-        localStream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: false,
-        });
+        try {
+          localStream = await navigator.mediaDevices.getUserMedia({
+            audio: inputDeviceId ? { deviceId: { exact: inputDeviceId } } : true,
+            video: false,
+          });
+        } catch {
+          if (!inputDeviceId) throw new Error("getUserMedia failed");
+          localStream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: false,
+          });
+        }
         if (cancelled) return;
         localStreamRef.current = localStream;
 
@@ -1030,10 +1074,27 @@ export default function VoiceWebRTC({
 
         // Add tracks.
         const audioTrack = localStream.getAudioTracks()[0] ?? null;
+        let publishStream = localStream;
+        let publishTrack = audioTrack;
 
         if (audioTrack) {
-          audioTrack.enabled = micEnabledRef.current;
-          publisherPc.addTrack(audioTrack, localStream);
+          const ctx = await ensureAudioContext();
+          const source = ctx.createMediaStreamSource(localStream);
+          const gain = ctx.createGain();
+          gain.gain.value = micLevelRef.current;
+          const dest = ctx.createMediaStreamDestination();
+          source.connect(gain).connect(dest);
+          micGainRef.current = gain;
+          publishStream = dest.stream;
+          publishTrack = dest.stream.getAudioTracks()[0] ?? audioTrack;
+        } else {
+          micGainRef.current = null;
+        }
+
+        if (publishTrack) {
+          publishTrack.enabled = micEnabledRef.current;
+          publishTrackRef.current = publishTrack;
+          publisherPc.addTrack(publishTrack, publishStream);
         }
         publisherPc.onicecandidate = (ev) => {
           if (!client) return;
@@ -1086,7 +1147,7 @@ export default function VoiceWebRTC({
 
     return () => cleanup();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channelId]);
+  }, [channelId, inputDeviceId]);
 
   if (!channelId) return null;
   return (
@@ -1156,6 +1217,8 @@ export default function VoiceWebRTC({
                 ? 0
                 : volumeByUserId[track.userId ?? ""] ?? 1
           }
+          outputDeviceId={outputDeviceId}
+          outputLevel={outputLevel}
         />
       ))}
     </>

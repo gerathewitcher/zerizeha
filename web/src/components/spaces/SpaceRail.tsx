@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import CreateSpaceModal from "@/components/spaces/CreateSpaceModal";
 import Tooltip from "@/components/ui/Tooltip";
 import { useMe } from "@/lib/me";
 import { useVoiceSession } from "@/components/spaces/VoiceSessionProvider";
 import AdminUsersPanel from "@/components/admin/AdminUsersPanel";
+import { updateUsername } from "@/lib/api/auth";
 
 type SpaceItem = {
   id: string;
@@ -35,9 +36,24 @@ export default function SpaceRail({
 }: SpaceRailProps) {
   const [createOpen, setCreateOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsSection, setSettingsSection] = useState<"account" | "admin">(
-    "account",
-  );
+  const [settingsSection, setSettingsSection] = useState<
+    "account" | "admin" | "av"
+  >("account");
+  const [avTab, setAvTab] = useState<"audio" | "video">("audio");
+  const [audioInputs, setAudioInputs] = useState<MediaDeviceInfo[]>([]);
+  const [audioOutputs, setAudioOutputs] = useState<MediaDeviceInfo[]>([]);
+  const [audioLoading, setAudioLoading] = useState(false);
+  const [audioError, setAudioError] = useState<string | null>(null);
+  const [micTestActive, setMicTestActive] = useState(false);
+  const micTestStreamRef = useRef<MediaStream | null>(null);
+  const micTestAudioRef = useRef<HTMLAudioElement | null>(null);
+  const micTestPrevStateRef = useRef<{
+    micMuted: boolean;
+    incomingMuted: boolean;
+  } | null>(null);
+  const [usernameDraft, setUsernameDraft] = useState("");
+  const [usernameError, setUsernameError] = useState<string | null>(null);
+  const [usernameSaving, setUsernameSaving] = useState(false);
   const pathname = usePathname();
   const meState = useMe();
   const voiceSession = useVoiceSession();
@@ -50,6 +66,7 @@ export default function SpaceRail({
   const profileName =
     meState.state.status === "ready" ? meState.state.me.username || "User" : "User";
   const profileInitial = profileName.trim().slice(0, 1).toUpperCase() || "U";
+  const maxUsernameLength = 20;
   const hasVoice = !!voiceSession.activeVoiceChannelId;
   const qualityLabel = !voiceSession.voiceReady
     ? "Подключение"
@@ -73,6 +90,169 @@ export default function SpaceRail({
         return "text-(--border)";
     }
   })();
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    if (meState.state.status !== "ready") return;
+    setUsernameDraft(meState.state.me.username || "");
+    setUsernameError(null);
+  }, [meState.state, settingsOpen]);
+
+  useEffect(() => {
+    if (!settingsOpen) return;
+    if (settingsSection !== "av") return;
+    setAvTab("audio");
+  }, [settingsOpen, settingsSection]);
+
+  useEffect(() => {
+    if (!settingsOpen || settingsSection !== "av") return;
+    let cancelled = false;
+    const loadDevices = async () => {
+      setAudioLoading(true);
+      setAudioError(null);
+      try {
+        const first = await navigator.mediaDevices.enumerateDevices();
+        const needsPermission = first.some(
+          (device) => device.kind === "audioinput" && !device.label,
+        );
+        if (needsPermission) {
+          try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream.getTracks().forEach((track) => track.stop());
+          } catch {
+            // ignore
+          }
+        }
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        if (cancelled) return;
+        setAudioInputs(devices.filter((d) => d.kind === "audioinput"));
+        setAudioOutputs(devices.filter((d) => d.kind === "audiooutput"));
+      } catch {
+        if (cancelled) return;
+        setAudioError("Не удалось загрузить устройства.");
+      } finally {
+        if (!cancelled) setAudioLoading(false);
+      }
+    };
+    if (typeof navigator !== "undefined" && navigator.mediaDevices) {
+      void loadDevices();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [settingsOpen, settingsSection]);
+
+  useEffect(() => {
+    const audio = micTestAudioRef.current;
+    if (!audio) return;
+    audio.volume = voiceSession.outputLevel;
+  }, [voiceSession.outputLevel]);
+
+  useEffect(() => {
+    const audio = micTestAudioRef.current as HTMLAudioElement & {
+      setSinkId?: (id: string) => Promise<void>;
+    };
+    if (!audio || !audio.setSinkId) return;
+    if (!voiceSession.audioOutputDeviceId) return;
+    audio.setSinkId(voiceSession.audioOutputDeviceId).catch(() => {});
+  }, [voiceSession.audioOutputDeviceId]);
+
+  const stopMicTest = useCallback(() => {
+    if (micTestStreamRef.current) {
+      micTestStreamRef.current.getTracks().forEach((track) => track.stop());
+      micTestStreamRef.current = null;
+    }
+    if (micTestAudioRef.current) {
+      micTestAudioRef.current.pause();
+      micTestAudioRef.current.srcObject = null;
+    }
+    if (micTestPrevStateRef.current) {
+      voiceSession.setMicMuted(micTestPrevStateRef.current.micMuted);
+      voiceSession.setIncomingMuted(micTestPrevStateRef.current.incomingMuted);
+      micTestPrevStateRef.current = null;
+    }
+    setMicTestActive(false);
+  }, [voiceSession]);
+
+  const startMicTest = useCallback(async () => {
+    if (micTestActive) {
+      stopMicTest();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: voiceSession.audioInputDeviceId
+          ? { deviceId: { exact: voiceSession.audioInputDeviceId } }
+          : true,
+        video: false,
+      });
+      micTestStreamRef.current = stream;
+      const audio = micTestAudioRef.current as HTMLAudioElement & {
+        setSinkId?: (id: string) => Promise<void>;
+      };
+      if (!audio) throw new Error("audio element missing");
+      audio.srcObject = stream;
+      audio.volume = voiceSession.outputLevel;
+      if (audio.setSinkId && voiceSession.audioOutputDeviceId) {
+        await audio.setSinkId(voiceSession.audioOutputDeviceId);
+      }
+      if (voiceSession.activeVoiceChannelId) {
+        micTestPrevStateRef.current = {
+          micMuted: voiceSession.micMuted,
+          incomingMuted: voiceSession.incomingMuted,
+        };
+        voiceSession.setMicMuted(true);
+        voiceSession.setIncomingMuted(true);
+      }
+      await audio.play();
+      setMicTestActive(true);
+    } catch {
+      setAudioError("Не удалось запустить проверку микрофона.");
+      stopMicTest();
+    }
+  }, [
+    micTestActive,
+    stopMicTest,
+    voiceSession,
+  ]);
+
+  useEffect(() => {
+    if (!settingsOpen || settingsSection !== "av") {
+      if (micTestActive) stopMicTest();
+    }
+  }, [micTestActive, settingsOpen, settingsSection, stopMicTest]);
+
+  const handleUsernameChange = (value: string) => {
+    setUsernameDraft(value);
+    if (value.trim().length === 0) {
+      setUsernameError("Имя не может быть пустым.");
+      return;
+    }
+    if (value.length > maxUsernameLength) {
+      setUsernameError(`Максимум ${maxUsernameLength} символов.`);
+      return;
+    }
+    setUsernameError(null);
+  };
+
+  const handleUsernameSave = async () => {
+    if (usernameSaving) return;
+    if (usernameError) return;
+    const nextName = usernameDraft.trim();
+    if (!nextName) {
+      setUsernameError("Имя не может быть пустым.");
+      return;
+    }
+    setUsernameSaving(true);
+    try {
+      await updateUsername(nextName);
+      meState.refresh();
+    } catch {
+      setUsernameError("Не удалось сохранить имя.");
+    } finally {
+      setUsernameSaving(false);
+    }
+  };
 
   return (
     <>
@@ -200,6 +380,18 @@ export default function SpaceRail({
                   <span className="text-base">👤</span>
                   Учетная запись
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setSettingsSection("av")}
+                  className={`flex items-center gap-3 rounded-xl border px-3 py-2 text-[11px] uppercase tracking-[0.2em] transition ${
+                    settingsSection === "av"
+                      ? "border-(--accent) text-(--accent)"
+                      : "border-(--border) text-(--muted) hover:border-(--accent) hover:text-(--accent)"
+                  }`}
+                >
+                  <span className="text-base">🎚️</span>
+                  Аудио и видео
+                </button>
                 {resolvedIsAdmin ? (
                   <button
                     type="button"
@@ -233,12 +425,18 @@ export default function SpaceRail({
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
-                    {settingsSection === "admin" ? "Admin" : "Профиль"}
+                    {settingsSection === "admin"
+                      ? "Admin"
+                      : settingsSection === "av"
+                        ? "Аудио и видео"
+                        : "Профиль"}
                   </p>
                   <h4 className="mt-2 font-(--font-display) text-2xl">
                     {settingsSection === "admin"
                       ? "Пользователи"
-                      : "Учетная запись"}
+                      : settingsSection === "av"
+                        ? "Аудио и видео"
+                        : "Учетная запись"}
                   </h4>
                 </div>
                 <button
@@ -257,16 +455,40 @@ export default function SpaceRail({
                       <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
                         Профиль
                       </p>
-                      <div className="mt-4 grid gap-3 text-sm">
+                      <div className="mt-4 grid gap-4 text-sm">
                         <div>
-                          <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
-                            Имя
-                          </p>
-                          <p className="mt-1 text-(--text)">
-                            {meState.state.status === "ready"
-                              ? meState.state.me.username || "user"
-                              : "—"}
-                          </p>
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
+                              Username
+                            </p>
+                            <span className="text-xs text-(--subtle)">
+                              {usernameDraft.length}/{maxUsernameLength}
+                            </span>
+                          </div>
+                          <input
+                            value={usernameDraft}
+                            onChange={(event) => handleUsernameChange(event.target.value)}
+                            maxLength={maxUsernameLength}
+                            placeholder="Введите username"
+                            className="mt-3 w-full rounded-xl border border-(--border) bg-(--bg-2) px-4 py-3 text-sm text-(--text) outline-none transition focus:border-(--accent)"
+                          />
+                          {usernameError ? (
+                            <p className="mt-2 text-xs text-(--danger)">
+                              {usernameError}
+                            </p>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={handleUsernameSave}
+                            disabled={
+                              usernameSaving ||
+                              !!usernameError ||
+                              usernameDraft.trim() === profileName
+                            }
+                            className="mt-3 rounded-xl border border-(--border) px-4 py-2 text-xs uppercase tracking-[0.2em] text-(--muted) transition hover:border-(--accent) hover:text-(--accent) disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {usernameSaving ? "Сохранение…" : "Сохранить"}
+                          </button>
                         </div>
                         <div>
                           <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
@@ -280,6 +502,163 @@ export default function SpaceRail({
                         </div>
                       </div>
                     </div>
+                  </div>
+                ) : settingsSection === "av" ? (
+                  <div className="space-y-4">
+                    <div className="flex gap-2 rounded-2xl border border-(--border) bg-(--bg-2) p-2">
+                      <button
+                        type="button"
+                        onClick={() => setAvTab("audio")}
+                        className={`flex-1 rounded-xl border px-3 py-2 text-xs uppercase tracking-[0.2em] transition ${
+                          avTab === "audio"
+                            ? "border-(--accent) text-(--accent)"
+                            : "border-transparent text-(--muted) hover:text-(--accent)"
+                        }`}
+                      >
+                        Аудио
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAvTab("video")}
+                        className={`flex-1 rounded-xl border px-3 py-2 text-xs uppercase tracking-[0.2em] transition ${
+                          avTab === "video"
+                            ? "border-(--accent) text-(--accent)"
+                            : "border-transparent text-(--muted) hover:text-(--accent)"
+                        }`}
+                      >
+                        Видео
+                      </button>
+                    </div>
+                    {avTab === "audio" ? (
+                      <div className="space-y-4">
+                        <div className="rounded-2xl border border-(--border) bg-(--panel) px-5 py-4">
+                          <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
+                            Устройства
+                          </p>
+                          {audioError ? (
+                            <p className="mt-3 text-xs text-(--danger)">{audioError}</p>
+                          ) : null}
+                          <div className="mt-4 grid gap-4 text-sm">
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
+                                Устройство ввода
+                              </p>
+                              <select
+                                className="mt-2 w-full rounded-xl border border-(--border) bg-(--bg-2) px-3 py-2 text-sm text-(--text) outline-none transition focus:border-(--accent)"
+                                value={voiceSession.audioInputDeviceId ?? ""}
+                                onChange={(event) =>
+                                  voiceSession.setAudioInputDeviceId(
+                                    event.target.value || null,
+                                  )
+                                }
+                                disabled={audioLoading}
+                              >
+                                <option value="">По умолчанию</option>
+                                {audioInputs.map((device, idx) => (
+                                  <option key={device.deviceId} value={device.deviceId}>
+                                    {device.label || `Микрофон ${idx + 1}`}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
+                                Устройство вывода
+                              </p>
+                              <select
+                                className="mt-2 w-full rounded-xl border border-(--border) bg-(--bg-2) px-3 py-2 text-sm text-(--text) outline-none transition focus:border-(--accent)"
+                                value={voiceSession.audioOutputDeviceId ?? ""}
+                                onChange={(event) =>
+                                  voiceSession.setAudioOutputDeviceId(
+                                    event.target.value || null,
+                                  )
+                                }
+                                disabled={audioLoading || audioOutputs.length === 0}
+                              >
+                                <option value="">По умолчанию</option>
+                                {audioOutputs.map((device, idx) => (
+                                  <option key={device.deviceId} value={device.deviceId}>
+                                    {device.label || `Вывод ${idx + 1}`}
+                                  </option>
+                                ))}
+                              </select>
+                              {audioOutputs.length === 0 ? (
+                                <p className="mt-2 text-xs text-(--subtle)">
+                                  Выбор устройства вывода недоступен в этом окружении.
+                                </p>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-(--border) bg-(--panel) px-5 py-4">
+                          <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
+                            Громкость
+                          </p>
+                          <div className="mt-4 grid gap-4 text-sm">
+                            <div>
+                              <div className="flex items-center justify-between text-xs text-(--subtle)">
+                                <span>Микрофон</span>
+                                <span>{Math.round(voiceSession.micLevel * 100)}%</span>
+                              </div>
+                              <input
+                                type="range"
+                                min={0}
+                                max={100}
+                                value={Math.round(voiceSession.micLevel * 100)}
+                                onChange={(event) =>
+                                  voiceSession.setMicLevel(
+                                    Number(event.target.value) / 100,
+                                  )
+                                }
+                                className="mt-2 w-full accent-(--accent)"
+                              />
+                            </div>
+                            <div>
+                              <div className="flex items-center justify-between text-xs text-(--subtle)">
+                                <span>Воспроизведение</span>
+                                <span>{Math.round(voiceSession.outputLevel * 100)}%</span>
+                              </div>
+                              <input
+                                type="range"
+                                min={0}
+                                max={100}
+                                value={Math.round(voiceSession.outputLevel * 100)}
+                                onChange={(event) =>
+                                  voiceSession.setOutputLevel(
+                                    Number(event.target.value) / 100,
+                                  )
+                                }
+                                className="mt-2 w-full accent-(--accent)"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        <div className="rounded-2xl border border-(--border) bg-(--panel) px-5 py-4">
+                          <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
+                            Проверка микрофона
+                          </p>
+                          <p className="mt-2 text-xs text-(--muted)">
+                            Во время проверки микрофон и звук в канале будут отключены.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={startMicTest}
+                            className={`mt-4 rounded-xl border px-4 py-2 text-xs uppercase tracking-[0.2em] transition ${
+                              micTestActive
+                                ? "border-(--danger) text-(--danger)"
+                                : "border-(--border) text-(--muted) hover:border-(--accent) hover:text-(--accent)"
+                            }`}
+                          >
+                            {micTestActive ? "Остановить" : "Начать проверку"}
+                          </button>
+                          <audio ref={micTestAudioRef} className="hidden" />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-(--border) bg-(--panel) px-5 py-4 text-sm text-(--muted)">
+                        Видеонастройки появятся позже.
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <AdminUsersPanel />

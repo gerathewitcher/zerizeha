@@ -50,6 +50,10 @@ type VoiceSessionContextValue = {
   mutedUserIds: Record<string, boolean>;
   volumeByUserId: Record<string, number>;
   micEnabled: boolean;
+  audioInputDeviceId: string | null;
+  audioOutputDeviceId: string | null;
+  micLevel: number;
+  outputLevel: number;
   meSummary: {
     id: string;
     username: string;
@@ -71,6 +75,10 @@ type VoiceSessionContextValue = {
   setPttKey: (value: string) => void;
   setMicMuted: (value: boolean) => void;
   setIncomingMuted: (value: boolean) => void;
+  setAudioInputDeviceId: (value: string | null) => void;
+  setAudioOutputDeviceId: (value: string | null) => void;
+  setMicLevel: (value: number) => void;
+  setOutputLevel: (value: number) => void;
   toggleScreenShare: () => void;
   watchScreen: (feedId: string) => void;
   leaveScreen: () => void;
@@ -93,6 +101,10 @@ export function useVoiceSession() {
 const volumeStorageKey = "zerizeha.voice.volumeByUserId";
 const pttKeyStorageKey = "zerizeha.ptt.key";
 const pttEnabledStorageKey = "zerizeha.ptt.enabled";
+const audioInputStorageKey = "zerizeha.audio.inputDeviceId";
+const audioOutputStorageKey = "zerizeha.audio.outputDeviceId";
+const micLevelStorageKey = "zerizeha.audio.micLevel";
+const outputLevelStorageKey = "zerizeha.audio.outputLevel";
 
 export default function VoiceSessionProvider({
   children,
@@ -144,12 +156,28 @@ export default function VoiceSessionProvider({
   const [volumeByUserId, setVolumeByUserId] = useState<Record<string, number>>(
     {},
   );
+  const [audioInputDeviceId, setAudioInputDeviceId] = useState<string | null>(
+    null,
+  );
+  const [audioOutputDeviceId, setAudioOutputDeviceId] = useState<string | null>(
+    null,
+  );
+  const [micLevel, setMicLevel] = useState(1);
+  const [outputLevel, setOutputLevel] = useState(1);
   const [voiceChannelIdsBySpaceId, setVoiceChannelIdsBySpaceId] = useState<
     Record<string, string[]>
   >({});
   const lastManualFocusAtRef = useRef(0);
   const lastActiveSpeakerIdRef = useRef<string | null>(null);
   const autoFocusedUserIdRef = useRef<string | null>(null);
+  const joinSoundRef = useRef<HTMLAudioElement | null>(null);
+  const leaveSoundRef = useRef<HTMLAudioElement | null>(null);
+  const prevChannelRef = useRef<string | null>(null);
+  const prevMembersRef = useRef<Set<string> | null>(null);
+  const lastJoinSoundAtRef = useRef(0);
+  const lastLeaveSoundAtRef = useRef(0);
+  const switchingChannelRef = useRef(false);
+  const suppressMemberSoundsUntilRef = useRef(0);
 
   const meSummary = useMemo(() => {
     if (meState.state.status !== "ready") return null;
@@ -163,6 +191,104 @@ export default function VoiceSessionProvider({
       deafened: incomingMuted,
     };
   }, [incomingMuted, meState.state, micMuted]);
+
+  useEffect(() => {
+    if (typeof Audio === "undefined") return;
+    joinSoundRef.current = new Audio("/sounds/join.wav");
+    leaveSoundRef.current = new Audio("/sounds/leave.wav");
+  }, []);
+
+  useEffect(() => {
+    const channelId = activeVoiceChannelId;
+    if (!channelId) {
+      if (switchingChannelRef.current) {
+        prevMembersRef.current = null;
+        return;
+      }
+      if (prevChannelRef.current && leaveSoundRef.current) {
+        const now = Date.now();
+        if (now - lastLeaveSoundAtRef.current > 700) {
+          lastLeaveSoundAtRef.current = now;
+          leaveSoundRef.current.volume = 0.50;
+          leaveSoundRef.current.currentTime = 0;
+          void leaveSoundRef.current.play().catch(() => {});
+        }
+      }
+      prevMembersRef.current = null;
+      prevChannelRef.current = null;
+      return;
+    }
+
+    if (prevChannelRef.current !== channelId) {
+      if (switchingChannelRef.current) {
+        switchingChannelRef.current = false;
+      }
+      if (joinSoundRef.current) {
+        const now = Date.now();
+        if (now - lastJoinSoundAtRef.current > 700) {
+          lastJoinSoundAtRef.current = now;
+          joinSoundRef.current.volume = 0.50;
+          joinSoundRef.current.currentTime = 0;
+          void joinSoundRef.current.play().catch(() => {});
+        }
+      }
+      suppressMemberSoundsUntilRef.current = Date.now() + 700;
+      prevChannelRef.current = channelId;
+      prevMembersRef.current = null;
+    }
+
+    const members = voiceMembersByChannelId[channelId];
+    if (!members) return;
+
+    const meId = meSummary?.id;
+    const currentIds = new Set(
+      members.map((member) => member.id).filter((id) => id !== meId),
+    );
+
+    if (!prevMembersRef.current) {
+      prevMembersRef.current = currentIds;
+      return;
+    }
+
+    let joined = false;
+    let left = false;
+    for (const id of currentIds) {
+      if (!prevMembersRef.current.has(id)) {
+        joined = true;
+        break;
+      }
+    }
+    for (const id of prevMembersRef.current) {
+      if (!currentIds.has(id)) {
+        left = true;
+        break;
+      }
+    }
+
+    prevMembersRef.current = currentIds;
+
+    const suppressMemberSounds =
+      Date.now() < suppressMemberSoundsUntilRef.current;
+
+    if (!suppressMemberSounds && joined && joinSoundRef.current) {
+      const now = Date.now();
+      if (now - lastJoinSoundAtRef.current > 700) {
+        lastJoinSoundAtRef.current = now;
+        joinSoundRef.current.volume = 0.50;
+        joinSoundRef.current.currentTime = 0;
+        void joinSoundRef.current.play().catch(() => {});
+      }
+    }
+    if (!suppressMemberSounds && left && leaveSoundRef.current) {
+      const now = Date.now();
+      if (now - lastLeaveSoundAtRef.current > 700) {
+        lastLeaveSoundAtRef.current = now;
+        leaveSoundRef.current.volume = 0.50;
+        leaveSoundRef.current.currentTime = 0;
+        void leaveSoundRef.current.play().catch(() => {});
+      }
+    }
+  }, [activeVoiceChannelId, meSummary?.id, voiceMembersByChannelId]);
 
   const micEnabled =
     pttAvailable && pttEnabled ? pttActive && !micMuted : !micMuted;
@@ -264,6 +390,67 @@ export default function VoiceSessionProvider({
   }, [volumeByUserId]);
 
   useEffect(() => {
+    try {
+      const inputId = window.localStorage.getItem(audioInputStorageKey);
+      const outputId = window.localStorage.getItem(audioOutputStorageKey);
+      const micRaw = window.localStorage.getItem(micLevelStorageKey);
+      const outRaw = window.localStorage.getItem(outputLevelStorageKey);
+      if (inputId) setAudioInputDeviceId(inputId);
+      if (outputId) setAudioOutputDeviceId(outputId);
+      if (micRaw) {
+        const value = Number(micRaw);
+        if (Number.isFinite(value)) setMicLevel(Math.max(0, Math.min(1, value)));
+      }
+      if (outRaw) {
+        const value = Number(outRaw);
+        if (Number.isFinite(value)) setOutputLevel(Math.max(0, Math.min(1, value)));
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (audioInputDeviceId) {
+        window.localStorage.setItem(audioInputStorageKey, audioInputDeviceId);
+      } else {
+        window.localStorage.removeItem(audioInputStorageKey);
+      }
+    } catch {
+      // ignore
+    }
+  }, [audioInputDeviceId]);
+
+  useEffect(() => {
+    try {
+      if (audioOutputDeviceId) {
+        window.localStorage.setItem(audioOutputStorageKey, audioOutputDeviceId);
+      } else {
+        window.localStorage.removeItem(audioOutputStorageKey);
+      }
+    } catch {
+      // ignore
+    }
+  }, [audioOutputDeviceId]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(micLevelStorageKey, String(micLevel));
+    } catch {
+      // ignore
+    }
+  }, [micLevel]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(outputLevelStorageKey, String(outputLevel));
+    } catch {
+      // ignore
+    }
+  }, [outputLevel]);
+
+  useEffect(() => {
     if (!activeVoiceChannelId || !meSummary?.id) return;
     void updateVoiceState({
       muted: micMuted,
@@ -313,6 +500,9 @@ export default function VoiceSessionProvider({
     ) => {
       if (!channelId) return;
       if (channelId === activeVoiceChannelId) return;
+      if (activeVoiceChannelId) {
+        switchingChannelRef.current = true;
+      }
       setVoiceFatalError(null);
       setScreenShareEnabled(false);
       setLocalScreenStream(null);
@@ -717,6 +907,10 @@ export default function VoiceSessionProvider({
       mutedUserIds,
       volumeByUserId,
       micEnabled,
+      audioInputDeviceId,
+      audioOutputDeviceId,
+      micLevel,
+      outputLevel,
       meSummary,
       setSpaceVoiceChannels,
       joinVoiceChannel,
@@ -728,6 +922,10 @@ export default function VoiceSessionProvider({
       setPttKey,
       setMicMuted,
       setIncomingMuted,
+      setAudioInputDeviceId,
+      setAudioOutputDeviceId,
+      setMicLevel,
+      setOutputLevel,
       toggleScreenShare: handleToggleScreenShare,
       watchScreen: handleWatchScreen,
       leaveScreen: handleLeaveScreen,
@@ -763,6 +961,10 @@ export default function VoiceSessionProvider({
       mutedUserIds,
       volumeByUserId,
       micEnabled,
+      audioInputDeviceId,
+      audioOutputDeviceId,
+      micLevel,
+      outputLevel,
       meSummary,
       setSpaceVoiceChannels,
       joinVoiceChannel,
@@ -774,6 +976,10 @@ export default function VoiceSessionProvider({
       setPttKey,
       setMicMuted,
       setIncomingMuted,
+      setAudioInputDeviceId,
+      setAudioOutputDeviceId,
+      setMicLevel,
+      setOutputLevel,
       handleToggleScreenShare,
       handleWatchScreen,
       handleLeaveScreen,
@@ -802,6 +1008,10 @@ export default function VoiceSessionProvider({
         volumeByUserId={volumeByUserId}
         mutedUserIds={mutedUserIds}
         outputMuted={incomingMuted}
+        inputDeviceId={audioInputDeviceId}
+        outputDeviceId={audioOutputDeviceId}
+        micLevel={micLevel}
+        outputLevel={outputLevel}
         onReady={() => setVoiceReady(true)}
         onFatalError={(message) => {
           console.error("Voice fatal error", message);
