@@ -105,6 +105,8 @@ export default function AdminUsersPanel({
 
   const meHttpStatus =
     meState.state.status === "error" ? meState.state.httpStatus : undefined;
+  const meIsAdmin =
+    meState.state.status === "ready" ? !!meState.state.me.is_admin : false;
 
   useEffect(() => {
     if (meState.state.status === "loading") return;
@@ -114,11 +116,11 @@ export default function AdminUsersPanel({
         return;
       }
     }
-    if (meState.state.status === "ready" && !meState.state.me.is_admin) {
+    if (meState.state.status === "ready" && !meIsAdmin) {
       handleUnauthorized();
       return;
     }
-    if (meState.state.status === "ready" && meState.state.me.is_admin) {
+    if (meState.state.status === "ready" && meIsAdmin) {
       lastQueryRef.current = "";
       load();
     }
@@ -127,7 +129,7 @@ export default function AdminUsersPanel({
     handleUnauthorized,
     load,
     meHttpStatus,
-    meState.state.me?.is_admin,
+    meIsAdmin,
     meState.state.status,
   ]);
 
