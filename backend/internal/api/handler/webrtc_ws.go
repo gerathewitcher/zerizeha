@@ -11,8 +11,8 @@ import (
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 
-	janus "zerizeha/internal/service/janus"
 	"zerizeha/internal/service"
+	janus "zerizeha/internal/service/janus"
 	"zerizeha/pkg/logger"
 )
 
@@ -101,7 +101,7 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 		return
 	}
 
-	events, cancel := janusSvc.Subscribe(512)
+	events, cancel := janusSvc.Subscribe(2048)
 	defer cancel()
 
 	ctx, cancelCtx := context.WithCancel(context.Background())
@@ -178,44 +178,39 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 						"feed_id":   feedID,
 						"candidate": json.RawMessage(ev.Candidate),
 					})
-						logger.Debug("webrtc ws janus trickle -> client",
-							slog.String("user_id", userID),
-							slog.String("connection_id", connectionID),
-							slog.String("target", target),
-							slog.String("feed_id", feedID),
-						)
+					logger.Debug("webrtc ws janus trickle -> client",
+						slog.String("user_id", userID),
+						slog.String("connection_id", connectionID),
+						slog.String("target", target),
+						slog.String("feed_id", feedID),
+					)
 					conn.SendWS(wsEnvelope{Type: "trickle", Payload: payload})
 					continue
 				}
 
 				// Videoroom publisher changes.
 				if strings.ToLower(ev.Janus) == "event" && ev.PluginData != nil && len(ev.PluginData.Data) > 0 {
-						var update struct {
-							Videoroom   string `json:"videoroom"`
-							Publishers  []struct {
-								ID      string `json:"id"`
-								Display string `json:"display,omitempty"`
-							} `json:"publishers,omitempty"`
-							Leaving     string `json:"leaving,omitempty"`
-							Unpublished string `json:"unpublished,omitempty"`
-						}
+					var update struct {
+						Videoroom  string `json:"videoroom"`
+						Publishers []struct {
+							ID      string `json:"id"`
+							Display string `json:"display,omitempty"`
+						} `json:"publishers,omitempty"`
+						Leaving     string `json:"leaving,omitempty"`
+						Unpublished string `json:"unpublished,omitempty"`
+					}
 					if err := json.Unmarshal(ev.PluginData.Data, &update); err != nil {
 						continue
 					}
 
 					if len(update.Publishers) > 0 {
 						for _, p := range update.Publishers {
-								logger.Info("webrtc ws publisher joined",
-									slog.String("user_id", userID),
-									slog.String("connection_id", connectionID),
-									slog.String("feed_id", p.ID),
-									slog.String("display", p.Display),
-								)
-							payload, _ := json.Marshal(map[string]any{
-								"feed_id": p.ID,
-								"display": p.Display,
-							})
-							conn.SendWS(wsEnvelope{Type: "publisher_joined", Payload: payload})
+							logger.Debug("webrtc ws publisher joined (janus event)",
+								slog.String("user_id", userID),
+								slog.String("connection_id", connectionID),
+								slog.String("feed_id", p.ID),
+								slog.String("display", p.Display),
+							)
 						}
 					}
 					left := update.Leaving
@@ -227,10 +222,10 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 							slog.String("user_id", userID),
 							slog.String("connection_id", connectionID),
 							slog.String("feed_id", left),
-							)
-							payload, _ := json.Marshal(map[string]any{"feed_id": left})
-							conn.SendWS(wsEnvelope{Type: "publisher_left", Payload: payload})
-						}
+						)
+						payload, _ := json.Marshal(map[string]any{"feed_id": left})
+						conn.SendWS(wsEnvelope{Type: "publisher_left", Payload: payload})
+					}
 				}
 			}
 		}
@@ -284,7 +279,7 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 				slog.String("room_id", conn.RoomID),
 			)
 
-			ctxReq, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			ctxReq, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 			answer, err := h.janus.Publish(ctxReq, conn.JanusSessionID, conn.PublisherHandleID, service.JanusJSEP{Type: payload.JSEP.Type, SDP: payload.JSEP.SDP})
 			cancel()
 			if err != nil {
@@ -305,6 +300,24 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 				},
 			})
 			conn.SendWS(wsEnvelope{Type: "publish_answer", RequestID: msg.RequestID, Payload: respPayload})
+
+			logger.Info("webrtc ws publish broadcast",
+				slog.String("user_id", userID),
+				slog.String("connection_id", connectionID),
+				slog.String("room_id", conn.RoomID),
+				slog.String("feed_id", conn.PublisherFeedID),
+				slog.String("display", conn.Display),
+			)
+			joinPayload, _ := json.Marshal(map[string]any{
+				"feed_id": conn.PublisherFeedID,
+				"display": conn.Display,
+			})
+			h.webrtc.ForEach(func(other *webrtcConn) {
+				if other.RoomID != conn.RoomID || other.ID == conn.ID {
+					return
+				}
+				other.SendWS(wsEnvelope{Type: "publisher_joined", Payload: joinPayload})
+			})
 
 		case "screen_publish_offer":
 			var payload struct {
@@ -408,36 +421,43 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 				other.SendWS(wsEnvelope{Type: "publisher_joined", Payload: joinPayload})
 			})
 
-			case "subscribe":
-				var payload struct {
-					FeedID string `json:"feed_id"`
-				}
-				if err := json.Unmarshal(msg.Payload, &payload); err != nil || payload.FeedID == "" {
-					conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"invalid payload"}`)})
-					continue
-				}
+		case "subscribe":
+			var payload struct {
+				FeedID string `json:"feed_id"`
+			}
+			if err := json.Unmarshal(msg.Payload, &payload); err != nil || payload.FeedID == "" {
+				conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"invalid payload"}`)})
+				continue
+			}
 
-				logger.Info("webrtc ws subscribe",
-					slog.String("user_id", userID),
-					slog.String("connection_id", connectionID),
-					slog.String("room_id", conn.RoomID),
-					slog.String("feed_id", payload.FeedID),
-				)
+			logger.Info("webrtc ws subscribe",
+				slog.String("user_id", userID),
+				slog.String("connection_id", connectionID),
+				slog.String("room_id", conn.RoomID),
+				slog.String("feed_id", payload.FeedID),
+			)
 
 			ctxReq, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			subHandleID, err := h.janus.AttachSubscriber(ctxReq, conn.JanusSessionID)
 			if err != nil {
 				cancel()
-						logger.Error("webrtc ws attach subscriber failed",
-							slog.String("user_id", userID),
-							slog.String("connection_id", connectionID),
-							slog.String("room_id", conn.RoomID),
-							slog.String("feed_id", payload.FeedID),
-							slog.String("err", err.Error()),
-						)
+				logger.Error("webrtc ws attach subscriber failed",
+					slog.String("user_id", userID),
+					slog.String("connection_id", connectionID),
+					slog.String("room_id", conn.RoomID),
+					slog.String("feed_id", payload.FeedID),
+					slog.String("err", err.Error()),
+				)
 				conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"attach subscriber failed"}`)})
 				continue
 			}
+			logger.Info("webrtc ws subscribe attached",
+				slog.String("user_id", userID),
+				slog.String("connection_id", connectionID),
+				slog.String("room_id", conn.RoomID),
+				slog.String("feed_id", payload.FeedID),
+				slog.Int64("handle_id", subHandleID),
+			)
 
 			offer, err := h.janus.JoinSubscriber(ctxReq, conn.JanusSessionID, subHandleID, conn.RoomID, payload.FeedID)
 			if err != nil {
@@ -461,13 +481,13 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 			cancel()
 			if err != nil {
 				_ = h.janus.Detach(context.Background(), conn.JanusSessionID, subHandleID)
-						logger.Error("webrtc ws subscribe failed",
-							slog.String("user_id", userID),
-							slog.String("connection_id", connectionID),
-							slog.String("room_id", conn.RoomID),
-							slog.String("feed_id", payload.FeedID),
-							slog.String("err", err.Error()),
-						)
+				logger.Error("webrtc ws subscribe failed",
+					slog.String("user_id", userID),
+					slog.String("connection_id", connectionID),
+					slog.String("room_id", conn.RoomID),
+					slog.String("feed_id", payload.FeedID),
+					slog.String("err", err.Error()),
+				)
 				payloadErr, _ := json.Marshal(map[string]any{
 					"message": "subscribe failed",
 					"err":     err.Error(),
@@ -488,19 +508,25 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 				},
 			})
 			conn.SendWS(wsEnvelope{Type: "subscribe_offer", RequestID: msg.RequestID, Payload: respPayload})
+			logger.Info("webrtc ws subscribe offer sent",
+				slog.String("user_id", userID),
+				slog.String("connection_id", connectionID),
+				slog.String("room_id", conn.RoomID),
+				slog.String("feed_id", payload.FeedID),
+			)
 
-			case "subscribe_answer":
-				var payload struct {
-					FeedID string `json:"feed_id"`
-					JSEP   struct {
-						Type string `json:"type"`
-						SDP  string `json:"sdp"`
-					} `json:"jsep"`
-				}
-				if err := json.Unmarshal(msg.Payload, &payload); err != nil || payload.FeedID == "" {
-					conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"invalid payload"}`)})
-					continue
-				}
+		case "subscribe_answer":
+			var payload struct {
+				FeedID string `json:"feed_id"`
+				JSEP   struct {
+					Type string `json:"type"`
+					SDP  string `json:"sdp"`
+				} `json:"jsep"`
+			}
+			if err := json.Unmarshal(msg.Payload, &payload); err != nil || payload.FeedID == "" {
+				conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"invalid payload"}`)})
+				continue
+			}
 
 			conn.mu.Lock()
 			subHandleID := conn.SubscriberHandlesByFeed[payload.FeedID]
@@ -514,12 +540,12 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 			err := h.janus.StartSubscriber(ctxReq, conn.JanusSessionID, subHandleID, service.JanusJSEP{Type: payload.JSEP.Type, SDP: payload.JSEP.SDP})
 			cancel()
 			if err != nil {
-						logger.Error("webrtc ws start subscriber failed",
-							slog.String("user_id", userID),
-							slog.String("connection_id", connectionID),
-							slog.String("feed_id", payload.FeedID),
-							slog.String("err", err.Error()),
-						)
+				logger.Error("webrtc ws start subscriber failed",
+					slog.String("user_id", userID),
+					slog.String("connection_id", connectionID),
+					slog.String("feed_id", payload.FeedID),
+					slog.String("err", err.Error()),
+				)
 				conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"start subscriber failed"}`)})
 				continue
 			}
@@ -554,13 +580,13 @@ func (h *Handler) webrtcWS(c *websocket.Conn) {
 			err := h.janus.Trickle(ctxReq, conn.JanusSessionID, handleID, payload.Candidate)
 			cancel()
 			if err != nil {
-					logger.Error("webrtc ws trickle failed",
-						slog.String("user_id", userID),
-						slog.String("connection_id", connectionID),
-						slog.String("target", payload.Target),
-						slog.String("feed_id", payload.FeedID),
-						slog.String("err", err.Error()),
-					)
+				logger.Error("webrtc ws trickle failed",
+					slog.String("user_id", userID),
+					slog.String("connection_id", connectionID),
+					slog.String("target", payload.Target),
+					slog.String("feed_id", payload.FeedID),
+					slog.String("err", err.Error()),
+				)
 				conn.SendWS(wsEnvelope{Type: "error", RequestID: msg.RequestID, Payload: []byte(`{"message":"trickle failed"}`)})
 				continue
 			}

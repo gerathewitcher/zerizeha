@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
-	"time"
 
 	"zerizeha/internal/service"
 )
@@ -106,7 +106,7 @@ type createRoomBody struct {
 }
 
 func (s *Service) EnsureRoom(ctx context.Context, sessionID int64, handleID int64, roomID string) error {
-	events, cancel := s.client.Subscribe(256)
+	events, cancel := s.client.Subscribe(2048)
 	defer cancel()
 
 	body, _ := json.Marshal(createRoomBody{
@@ -191,9 +191,9 @@ type videoroomEvent struct {
 }
 
 type joinedEvent struct {
-	Videoroom string `json:"videoroom"`
-	Room      string `json:"room"`
-	ID        string `json:"id"`
+	Videoroom  string `json:"videoroom"`
+	Room       string `json:"room"`
+	ID         string `json:"id"`
 	Publishers []struct {
 		ID      string `json:"id"`
 		Display string `json:"display,omitempty"`
@@ -201,7 +201,7 @@ type joinedEvent struct {
 }
 
 func (s *Service) JoinPublisher(ctx context.Context, sessionID int64, handleID int64, roomID string, display string) (string, []service.JanusPublisher, error) {
-	events, cancel := s.client.Subscribe(256)
+	events, cancel := s.client.Subscribe(2048)
 	defer cancel()
 
 	body, _ := json.Marshal(joinPublisherBody{
@@ -244,7 +244,7 @@ type publishBody struct {
 }
 
 func (s *Service) Publish(ctx context.Context, sessionID int64, handleID int64, offer service.JanusJSEP) (service.JanusJSEP, error) {
-	events, cancel := s.client.Subscribe(256)
+	events, cancel := s.client.Subscribe(2048)
 	defer cancel()
 
 	hasVideo := sdpHasSendingVideo(offer.SDP)
@@ -272,7 +272,7 @@ func (s *Service) Publish(ctx context.Context, sessionID int64, handleID int64, 
 
 	// For publish, Janus will emit a plugin event with jsep answer.
 	type publishConfigured struct {
-		Videoroom string `json:"videoroom"`
+		Videoroom  string `json:"videoroom"`
 		Configured string `json:"configured,omitempty"`
 	}
 
@@ -335,7 +335,13 @@ type joinSubscriberBody struct {
 }
 
 func (s *Service) JoinSubscriber(ctx context.Context, sessionID int64, handleID int64, roomID string, feedID string) (service.JanusJSEP, error) {
-	events, cancel := s.client.Subscribe(256)
+	slog.Info("janus join subscriber",
+		slog.Int64("session_id", sessionID),
+		slog.Int64("handle_id", handleID),
+		slog.String("room_id", roomID),
+		slog.String("feed_id", feedID),
+	)
+	events, cancel := s.client.Subscribe(2048)
 	defer cancel()
 
 	body, _ := json.Marshal(joinSubscriberBody{
@@ -375,6 +381,13 @@ func (s *Service) JoinSubscriber(ctx context.Context, sessionID int64, handleID 
 		}
 	})
 	if err != nil {
+		slog.Error("janus join subscriber failed",
+			slog.Int64("session_id", sessionID),
+			slog.Int64("handle_id", handleID),
+			slog.String("room_id", roomID),
+			slog.String("feed_id", feedID),
+			slog.String("err", err.Error()),
+		)
 		return service.JanusJSEP{}, err
 	}
 
@@ -382,6 +395,13 @@ func (s *Service) JoinSubscriber(ctx context.Context, sessionID int64, handleID 
 	if err := json.Unmarshal(msg.JSEP, &offer); err != nil {
 		return service.JanusJSEP{}, errors.New("janus subscriber: missing jsep offer")
 	}
+	slog.Info("janus join subscriber offer",
+		slog.Int64("session_id", sessionID),
+		slog.Int64("handle_id", handleID),
+		slog.String("room_id", roomID),
+		slog.String("feed_id", feedID),
+		slog.Int("sdp_bytes", len(offer.SDP)),
+	)
 	return offer, nil
 }
 
@@ -500,9 +520,6 @@ func waitEventWithJSEP(
 ) (Message, error) {
 	// There is no per-transaction correlation for async events, so we scan the shared event stream.
 	// This is MVP and works as long as you don't do many concurrent operations per handle.
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -519,6 +536,12 @@ func waitEventWithJSEP(
 			}
 			if msg.PluginData == nil || len(msg.PluginData.Data) == 0 {
 				continue
+			}
+			var ev videoroomEvent
+			if err := json.Unmarshal(msg.PluginData.Data, &ev); err == nil {
+				if ev.ErrorCode != 0 || ev.Error != "" {
+					return Message{}, &VideoroomError{Code: ev.ErrorCode, Message: ev.Error}
+				}
 			}
 			if len(msg.JSEP) == 0 {
 				continue
