@@ -40,6 +40,7 @@ type VoiceSessionContextValue = {
   connectionQuality: ConnectionQuality;
   voicePanelExpanded: boolean;
   voiceReady: boolean;
+  voicePeerReady: boolean;
   pttAvailable: boolean;
   pttEnabled: boolean;
   pttActive: boolean;
@@ -145,6 +146,7 @@ export default function VoiceSessionProvider({
   );
   const [voicePanelExpanded, setVoicePanelExpanded] = useState(false);
   const [voiceReady, setVoiceReady] = useState(false);
+  const [voicePeerReady, setVoicePeerReady] = useState(false);
   const [pttAvailable, setPttAvailable] = useState(false);
   const [pttEnabled, setPttEnabled] = useState(false);
   const [pttActive, setPttActive] = useState(false);
@@ -170,6 +172,7 @@ export default function VoiceSessionProvider({
   const lastManualFocusAtRef = useRef(0);
   const lastActiveSpeakerIdRef = useRef<string | null>(null);
   const autoFocusedUserIdRef = useRef<string | null>(null);
+  const voicePeerFeedsRef = useRef<Set<string>>(new Set());
   const joinSoundRef = useRef<HTMLAudioElement | null>(null);
   const leaveSoundRef = useRef<HTMLAudioElement | null>(null);
   const prevChannelRef = useRef<string | null>(null);
@@ -540,6 +543,8 @@ export default function VoiceSessionProvider({
         setActiveVoiceSpaceId(spaceId);
         setActiveVoiceSpaceName(spaceName ?? "");
         setVoiceReady(false);
+        voicePeerFeedsRef.current.clear();
+        setVoicePeerReady(false);
         if (meSummary?.id) {
           setVoiceMembersByChannelId((prev) => {
             const next: Record<string, VoiceMember[]> = {};
@@ -575,6 +580,8 @@ export default function VoiceSessionProvider({
     setFocusedUserId(null);
     setConnectionQuality("unknown");
     setVoiceReady(false);
+    voicePeerFeedsRef.current.clear();
+    setVoicePeerReady(false);
     setVoicePanelExpanded(false);
     if (meSummary?.id) {
       setVoiceMembersByChannelId((prev) => {
@@ -737,7 +744,26 @@ export default function VoiceSessionProvider({
   useEffect(() => {
     if (!activeVoiceChannelId) setVoiceSpeakingByUserId({});
     if (!activeVoiceChannelId) setVoiceReady(false);
+    if (!activeVoiceChannelId) {
+      voicePeerFeedsRef.current.clear();
+      setVoicePeerReady(false);
+    }
   }, [activeVoiceChannelId]);
+
+  const handleVoiceSubscriberReady = useCallback((feedId: string) => {
+    if (!feedId) return;
+    if (voicePeerFeedsRef.current.has(feedId)) return;
+    voicePeerFeedsRef.current.add(feedId);
+    setVoicePeerReady(true);
+  }, []);
+
+  const handleVoiceSubscriberRemoved = useCallback((feedId: string) => {
+    if (!feedId) return;
+    if (!voicePeerFeedsRef.current.delete(feedId)) return;
+    if (voicePeerFeedsRef.current.size === 0) {
+      setVoicePeerReady(false);
+    }
+  }, []);
 
   const observedVoiceChannelIds = useMemo(() => {
     if (!observedSpaceId) return [];
@@ -918,6 +944,7 @@ export default function VoiceSessionProvider({
       connectionQuality,
       voicePanelExpanded,
       voiceReady,
+      voicePeerReady,
       pttAvailable,
       pttEnabled,
       pttActive,
@@ -972,6 +999,7 @@ export default function VoiceSessionProvider({
       connectionQuality,
       voicePanelExpanded,
       voiceReady,
+      voicePeerReady,
       pttAvailable,
       pttEnabled,
       pttActive,
@@ -1033,6 +1061,8 @@ export default function VoiceSessionProvider({
         outputDeviceId={audioOutputDeviceId}
         micLevel={micLevel}
         outputLevel={outputLevel}
+        onVoiceSubscriberReady={handleVoiceSubscriberReady}
+        onVoiceSubscriberRemoved={handleVoiceSubscriberRemoved}
         onReady={() => setVoiceReady(true)}
         onFatalError={(message) => {
           console.error("Voice fatal error", message);

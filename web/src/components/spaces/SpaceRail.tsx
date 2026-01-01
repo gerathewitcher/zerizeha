@@ -68,17 +68,39 @@ export default function SpaceRail({
   const profileInitial = profileName.trim().slice(0, 1).toUpperCase() || "U";
   const maxUsernameLength = 20;
   const hasVoice = !!voiceSession.activeVoiceChannelId;
-  const qualityLabel = !voiceSession.voiceReady
-    ? "Подключение"
-    : voiceSession.connectionQuality === "good"
-      ? "Хорошая связь"
-      : voiceSession.connectionQuality === "ok"
-        ? "Средняя связь"
-        : voiceSession.connectionQuality === "bad"
-          ? "Плохая связь"
-          : "Связь неизвестна";
+  const activeVoiceMembers = voiceSession.activeVoiceChannelId
+    ? voiceSession.voiceMembersByChannelId[voiceSession.activeVoiceChannelId] ?? []
+    : [];
+  const remoteVoiceMembers = activeVoiceMembers.filter(
+    (member) => member.id !== voiceSession.meSummary?.id,
+  );
+  const voiceStage = !hasVoice
+    ? "idle"
+    : !voiceSession.voiceReady
+      ? "connecting"
+      : remoteVoiceMembers.length === 0
+        ? "waiting"
+        : voiceSession.voicePeerReady
+          ? "ready"
+          : "syncing";
+  const qualityLabel =
+    voiceStage === "connecting"
+      ? "Подключение"
+      : voiceStage === "waiting"
+        ? "Ожидание участников"
+        : voiceStage === "syncing"
+          ? "Подключение к голосу"
+          : voiceSession.connectionQuality === "good"
+            ? "Хорошая связь"
+            : voiceSession.connectionQuality === "ok"
+              ? "Средняя связь"
+              : voiceSession.connectionQuality === "bad"
+                ? "Плохая связь"
+                : "Связь неизвестна";
   const qualityClass = (() => {
-    if (!voiceSession.voiceReady) return "text-sky-400";
+    if (voiceStage === "connecting") return "text-sky-400";
+    if (voiceStage === "syncing") return "text-amber-400";
+    if (voiceStage === "waiting") return "text-(--muted)";
     switch (voiceSession.connectionQuality) {
       case "good":
         return "text-emerald-400";

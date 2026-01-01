@@ -277,6 +277,8 @@ type VoiceWebRTCProps = {
   screenShareEnabled?: boolean;
   onScreenShareStateChange?: (active: boolean) => void;
   watchFeedId?: string | null;
+  onVoiceSubscriberReady?: (feedId: string) => void;
+  onVoiceSubscriberRemoved?: (feedId: string) => void;
   volumeByUserId?: Record<string, number>;
   mutedUserIds?: Record<string, boolean>;
   onReady?: () => void;
@@ -301,6 +303,8 @@ export default function VoiceWebRTC({
   screenShareEnabled = false,
   onScreenShareStateChange,
   watchFeedId = null,
+  onVoiceSubscriberReady,
+  onVoiceSubscriberRemoved,
   volumeByUserId = {},
   mutedUserIds = {},
   onReady,
@@ -411,6 +415,20 @@ export default function VoiceWebRTC({
     onConnectionQualityRef.current = onConnectionQuality;
   }, [onConnectionQuality]);
 
+  const onVoiceSubscriberReadyRef = useRef<
+    VoiceWebRTCProps["onVoiceSubscriberReady"]
+  >(onVoiceSubscriberReady);
+  useEffect(() => {
+    onVoiceSubscriberReadyRef.current = onVoiceSubscriberReady;
+  }, [onVoiceSubscriberReady]);
+
+  const onVoiceSubscriberRemovedRef = useRef<
+    VoiceWebRTCProps["onVoiceSubscriberRemoved"]
+  >(onVoiceSubscriberRemoved);
+  useEffect(() => {
+    onVoiceSubscriberRemovedRef.current = onVoiceSubscriberRemoved;
+  }, [onVoiceSubscriberRemoved]);
+
   const onScreenShareStateChangeRef = useRef<
     VoiceWebRTCProps["onScreenShareStateChange"]
   >(onScreenShareStateChange);
@@ -447,6 +465,7 @@ export default function VoiceWebRTC({
     const feedMetaById = new Map<string, { userId: string; kind: FeedKind }>();
     const screenFeeds = new Map<string, string>();
     const remoteStreamByFeedId = new Map<string, MediaStream>();
+    const voiceReadyTimers = new Map<string, number>();
     const meters = new Map<
       string,
       {
@@ -494,6 +513,10 @@ export default function VoiceWebRTC({
 
       for (const m of meters.values()) m.stop();
       meters.clear();
+      for (const timer of voiceReadyTimers.values()) {
+        window.clearTimeout(timer);
+      }
+      voiceReadyTimers.clear();
       if (audioCtx) {
         try {
           audioCtx.close();
@@ -679,6 +702,43 @@ export default function VoiceWebRTC({
       meters.set(key, { stop, speaking, lastOnMs });
     };
 
+    const scheduleVoiceReadyCheck = (feedId: string, pc: RTCPeerConnection) => {
+      if (voiceReadyTimers.has(feedId)) return;
+      let attempts = 0;
+      const check = async () => {
+        if (cancelled) return;
+        try {
+          const stats = await pc.getStats();
+          let ready = false;
+          stats.forEach((report) => {
+            if (report.type !== "inbound-rtp") return;
+            if ((report as any).kind !== "audio") return;
+            const bytes = Number((report as any).bytesReceived ?? 0);
+            const packets = Number((report as any).packetsReceived ?? 0);
+            if (bytes > 0 || packets > 0) {
+              ready = true;
+            }
+          });
+          if (ready) {
+            voiceReadyTimers.delete(feedId);
+            onVoiceSubscriberReadyRef.current?.(feedId);
+            return;
+          }
+        } catch {
+          // ignore
+        }
+        attempts += 1;
+        if (attempts >= 30) {
+          voiceReadyTimers.delete(feedId);
+          return;
+        }
+        const timer = window.setTimeout(check, 200);
+        voiceReadyTimers.set(feedId, timer);
+      };
+      const timer = window.setTimeout(check, 200);
+      voiceReadyTimers.set(feedId, timer);
+    };
+
     const ensureSubscriber = async (feedId: string) => {
       if (!feedId || feedId === selfFeedId) return;
       if (subscriberPcs.has(feedId)) return;
@@ -693,11 +753,12 @@ export default function VoiceWebRTC({
             "subscribe",
             { feed_id: feedId },
             "subscribe_offer",
+            4500,
           );
           break;
         } catch (err) {
           if (attempt === 5) throw err;
-          await new Promise((r) => setTimeout(r, 300 + attempt * 250));
+          await new Promise((r) => setTimeout(r, 200 + attempt * 200));
         }
       }
       if (cancelled) return;
@@ -730,10 +791,12 @@ export default function VoiceWebRTC({
         const meta = feedMetaById.get(feedId);
         const userId = meta?.userId;
         const kind = meta?.kind ?? "voice";
+        const isScreen = kind === "screen" || screenFeeds.has(feedId);
 
-        if (kind === "voice") {
+        if (!isScreen) {
           // RMS-based speaking detection for this remote stream, without routing audio to output.
           startRmsMeter(feedId, stream, () => userId ?? null).catch(() => {});
+          scheduleVoiceReadyCheck(feedId, pc);
         }
         if (userId && kind === "screen") {
           onRemoteScreenStreamRef.current?.(feedId, userId, stream);
@@ -1003,6 +1066,8 @@ export default function VoiceWebRTC({
               onRemoteScreenStreamRemovedRef.current?.(feedId);
               screenFeeds.delete(feedId);
               notifyScreenShares();
+            } else {
+              onVoiceSubscriberRemovedRef.current?.(feedId);
             }
             feedMetaById.delete(feedId);
             remoteStreamByFeedId.delete(feedId);
@@ -1017,6 +1082,11 @@ export default function VoiceWebRTC({
                 // ignore
               }
               subscriberPcs.delete(feedId);
+            }
+            const timer = voiceReadyTimers.get(feedId);
+            if (timer) {
+              window.clearTimeout(timer);
+              voiceReadyTimers.delete(feedId);
             }
             setRemoteTracks((prev) => prev.filter((t) => t.feedId !== feedId));
           }
