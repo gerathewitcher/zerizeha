@@ -133,6 +133,7 @@ function createWindow() {
     width: 1280,
     height: 720,
     icon: windowIcon,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -141,6 +142,7 @@ function createWindow() {
   if (windowIcon && typeof mainWindow.setIcon === "function") {
     mainWindow.setIcon(windowIcon);
   }
+  mainWindow.setMenuBarVisibility(false);
 
   if (isDev) {
     mainWindow.loadURL(startUrl);
@@ -208,6 +210,7 @@ const createTray = () => {
 };
 
 app.whenReady().then(async () => {
+  Menu.setApplicationMenu(null);
   const ses = session.defaultSession;
   if (ses?.setPermissionRequestHandler) {
     ses.setPermissionRequestHandler((_webContents, permission, callback) => {
