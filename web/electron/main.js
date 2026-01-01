@@ -14,6 +14,18 @@ const fs = require("fs");
 const { uIOhook, UiohookKey } = require("uiohook-napi");
 
 const isDev = !app.isPackaged;
+
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+}
 const startUrl = process.env.ELECTRON_START_URL || (isDev
   ? "http://localhost:3000"
   : "https://zzeha.ru:8443");
