@@ -270,7 +270,10 @@ export default function SpaceSidebar({
                     <button
                       type="button"
                       className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                      onClick={() => onSelectVoiceChannel?.(channel.id)}
+                      onClick={() => {
+                        if (editingChannelId === channel.id) return;
+                        onSelectVoiceChannel?.(channel.id);
+                      }}
                     >
                       <span className="text-(--subtle)">🔊</span>
                       {editingChannelId === channel.id ? (
@@ -282,6 +285,7 @@ export default function SpaceSidebar({
                           }}
                           onClick={(ev) => ev.stopPropagation()}
                           onKeyDown={(ev) => {
+                            ev.stopPropagation();
                             if (ev.key === "Enter") {
                               ev.preventDefault();
                               handleChannelSave(channel.id);
