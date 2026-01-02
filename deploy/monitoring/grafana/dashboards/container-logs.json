@@ -22,7 +22,7 @@
         "refresh": 1,
         "includeAll": true,
         "multi": false,
-        "allValue": ".*",
+        "allValue": ".+",
         "query": "label_values(compose_project)"
       },
       {
@@ -32,7 +32,7 @@
         "refresh": 1,
         "includeAll": true,
         "multi": true,
-        "allValue": ".*",
+        "allValue": ".+",
         "query": "label_values({compose_project=~\"$project\"}, compose_service)"
       }
     ]
