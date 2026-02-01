@@ -20,7 +20,7 @@
 - Janus Gateway — RTC-сервер
 - Go — backend
 - PostgreSQL — основная база данных
-- Redis — кеширование
+- Redis — база для реализации presence в каналах
 - Caddy — входной прокси
 - Coturn — TURN-сервер
 - Docker — контейнеризация
