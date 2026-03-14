@@ -20,7 +20,7 @@
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
-
+AGENTS.md
 # Go workspace file
 go.work
 
@@ -86,3 +86,4 @@ sketch
 # local tools / build outputs
 bin/
 **/bin/
+.gocache/
