@@ -186,7 +186,7 @@ export default function SpacePage() {
       }
 
       try {
-        const page = await fetchChannelMessages(channelId, signal);
+        const page = await fetchChannelMessages(channelId, undefined, signal);
         setChatMessages([...page.items].reverse());
         setChatNextCursor(page.next_cursor ?? null);
       } catch (err) {
