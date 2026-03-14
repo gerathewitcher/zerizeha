@@ -47,6 +47,16 @@ type LocalChatMessage = {
   error?: string;
 };
 
+type ChatMessageView = {
+  id: string;
+  createdAt: string;
+  author: string;
+  time: string;
+  text: string;
+  status?: "sending" | "failed";
+  error?: string;
+};
+
 export default function SpacePage() {
   const meState = useMe();
   const params = useParams<{ spaceId?: string | string[] }>();
@@ -347,7 +357,7 @@ export default function SpacePage() {
 
   const formattedChatMessages = useMemo(
     () => {
-      const serverMessages = chatMessages.map((message) => ({
+      const serverMessages: ChatMessageView[] = chatMessages.map((message) => ({
         id: message.id,
         createdAt: message.created_at,
         author: message.author.username,
@@ -357,7 +367,7 @@ export default function SpacePage() {
         }),
         text: message.body,
       }));
-      const localMessages = localChatMessages
+      const localMessages: ChatMessageView[] = localChatMessages
         .filter((message) => message.channelId === activeChatChannelId)
         .map((message) => ({
           id: message.id,
