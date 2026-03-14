@@ -29,7 +29,6 @@ type SpaceSidebarProps = {
   onSelectVoiceChannelChat?: (channelId: string) => void;
   onSelectVoiceChannel?: (channelId: string) => void;
   onLeaveVoiceChannel?: () => void;
-  onToggleChat?: () => void;
   chatOpen?: boolean;
   volumeByUserId?: Record<string, number>;
   onVolumeChange?: (userId: string, volume: number) => void;
@@ -57,7 +56,6 @@ export default function SpaceSidebar({
   onSelectVoiceChannelChat,
   onSelectVoiceChannel,
   onLeaveVoiceChannel,
-  onToggleChat,
   chatOpen = true,
   volumeByUserId = {},
   onVolumeChange,
@@ -430,37 +428,6 @@ export default function SpaceSidebar({
                           </svg>
                         </button>
                       </Tooltip>
-                      {activeVoiceChannelId === channel.id && (
-                        <>
-                          <Tooltip label="Показать чат активного канала">
-                            <button
-                              type="button"
-                              className={`flex h-6 w-6 items-center justify-center rounded-md border text-xs transition ${
-                                chatOpen
-                                  ? "border-(--accent) text-(--accent)"
-                                  : "border-(--border) text-(--muted) hover:border-(--accent) hover:text-(--accent)"
-                              }`}
-                              aria-label="Показать чат активного канала"
-                              onClick={onToggleChat}
-                            >
-                              <svg
-                                className="h-3.5 w-3.5"
-                                viewBox="0 0 16 16"
-                                fill="none"
-                                xmlns="http://www.w3.org/2000/svg"
-                                aria-hidden="true"
-                              >
-                                <path
-                                  d="M3 4.5C3 3.7 3.7 3 4.5 3H11.5C12.3 3 13 3.7 13 4.5V9.5C13 10.3 12.3 11 11.5 11H7L4 13V4.5Z"
-                                  stroke="currentColor"
-                                  strokeWidth="1.2"
-                                  strokeLinejoin="round"
-                                />
-                              </svg>
-                            </button>
-                          </Tooltip>
-                        </>
-                      )}
                     </div>
                   </div>
                   {editingChannelId === channel.id && channelError ? (

@@ -457,14 +457,6 @@ export default function SpacePage() {
     }
   }, [loggingOut, activeVoiceChannelId, handleLeaveVoiceChannel]);
 
-  const handleToggleChat = useCallback(() => {
-    setChatOpen(true);
-    voiceSession.setVoicePanelExpanded(false);
-    if (activeVoiceChannelId) {
-      setActiveChatChannelId(activeVoiceChannelId);
-    }
-  }, [activeVoiceChannelId, voiceSession]);
-
   const handleSelectTextChannel = useCallback(
     (channelId: string) => {
       setActiveChatChannelId(channelId);
@@ -796,7 +788,6 @@ export default function SpacePage() {
               onSelectVoiceChannelChat={handleSelectVoiceChannelChat}
               onSelectVoiceChannel={handleSelectVoiceChannel}
               onLeaveVoiceChannel={handleLeaveVoiceChannel}
-              onToggleChat={handleToggleChat}
               chatOpen={chatOpen}
               volumeByUserId={volumeByUserId}
               onVolumeChange={voiceSession.setVolume}
