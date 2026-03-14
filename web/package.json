@@ -1,6 +1,6 @@
 {
   "name": "zerizeha",
-  "version": "0.1.5",
+  "version": "1.0.6",
   "main": "electron/main.js",
   "homepage": "https://zzeha.ru:8443",
   "private": true,
