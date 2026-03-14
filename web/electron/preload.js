@@ -16,4 +16,7 @@ contextBridge.exposeInMainWorld("electron", {
   window: {
     setFullscreen: (enabled) => ipcRenderer.invoke("window:set-fullscreen", enabled),
   },
+  shell: {
+    openExternal: (url) => ipcRenderer.invoke("shell:open-external", url),
+  },
 });

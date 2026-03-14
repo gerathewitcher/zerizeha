@@ -16,6 +16,9 @@ declare global {
       window?: {
         setFullscreen: (enabled: boolean) => Promise<boolean> | boolean;
       };
+      shell?: {
+        openExternal: (url: string) => Promise<boolean> | boolean;
+      };
     };
   }
 }

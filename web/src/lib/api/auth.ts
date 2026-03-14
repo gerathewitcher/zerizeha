@@ -10,9 +10,25 @@ const makeUrl = (path: string) => `${resolveApiBase()}${path}`;
 const AUTH_GOOGLE_PATH = "/api/auth/google";
 const AUTH_GITHUB_PATH = "/api/auth/github";
 const AUTH_YANDEX_PATH = "/api/auth/yandex";
-export function loginWithGoogle() {
+
+function openOAuthUrl(path: string) {
   if (typeof window === "undefined") return;
-  window.location.assign(makeUrl(AUTH_GOOGLE_PATH));
+
+  const url = makeUrl(path);
+  if (window.electron?.shell?.openExternal) {
+    void window.electron.shell.openExternal(url);
+    return;
+  }
+
+  window.location.assign(url);
+}
+
+export function loginWithGoogle() {
+  openOAuthUrl(
+    window.electron?.shell?.openExternal
+      ? `${AUTH_GOOGLE_PATH}?client=desktop`
+      : AUTH_GOOGLE_PATH,
+  );
 }
 
 export function loginWithGithub() {
