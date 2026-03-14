@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import ChatPanel from "@/components/spaces/ChatPanel";
@@ -11,12 +11,21 @@ import { useVoiceSession } from "@/components/spaces/VoiceSessionProvider";
 import ErrorState from "@/components/ui/ErrorState";
 import { fetchChannelsBySpaceId } from "@/lib/api/channels";
 import { logout } from "@/lib/api/auth";
+import {
+  fetchChannelMessages,
+  mergeChannelMessages,
+  prependChannelMessages,
+  sendChannelMessage,
+} from "@/lib/api/chat";
 import { getHttpStatus } from "@/lib/api/errors";
 import { redirectIfAuthOrOnboardingError } from "@/lib/api/redirects";
 import { fetchSpaceById, fetchSpaces } from "@/lib/api/spaces";
 import { useMe } from "@/lib/me";
-import { messages } from "@/lib/mock";
-import type { Channel, Space } from "@/lib/api/generated/zerizeha-schemas";
+import type {
+  Channel,
+  ChannelMessage,
+  Space,
+} from "@/lib/api/generated/zerizeha-schemas";
 
 type ViewState =
   | { status: "loading" }
@@ -27,6 +36,16 @@ type ViewState =
       space: Space;
       channels: Channel[];
     };
+
+type LocalChatMessage = {
+  id: string;
+  channelId: string;
+  body: string;
+  createdAt: string;
+  authorUsername: string;
+  status: "sending" | "failed";
+  error?: string;
+};
 
 export default function SpacePage() {
   const meState = useMe();
@@ -40,6 +59,17 @@ export default function SpacePage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [loggingOut, setLoggingOut] = useState(false);
   const [chatOpen, setChatOpen] = useState(true);
+  const [activeChatChannelId, setActiveChatChannelId] = useState<string | null>(
+    null,
+  );
+  const [chatMessages, setChatMessages] = useState<ChannelMessage[]>([]);
+  const [localChatMessages, setLocalChatMessages] = useState<LocalChatMessage[]>([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatLoadingOlder, setChatLoadingOlder] = useState(false);
+  const [chatNextCursor, setChatNextCursor] = useState<string | null>(null);
+  const [unreadByChannelId, setUnreadByChannelId] = useState<Record<string, number>>(
+    {},
+  );
   const volumeByUserId = voiceSession.volumeByUserId;
   const mutedUserIds = voiceSession.mutedUserIds;
   const micMuted = voiceSession.micMuted;
@@ -56,7 +86,8 @@ export default function SpacePage() {
   const screenShares = voiceSession.screenShares;
   const selectedScreenFeedId = voiceSession.selectedScreenFeedId;
   const focusedUserId = voiceSession.focusedUserId;
-
+  const meSummary = voiceSession.meSummary;
+  const incomingMessageSoundRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     if (!spaceId) return;
@@ -92,7 +123,11 @@ export default function SpacePage() {
     return () => controller.abort();
   }, [spaceId, reloadKey]);
 
-  const chatMessages = useMemo(() => messages, []);
+  useEffect(() => {
+    if (typeof Audio === "undefined") return;
+    incomingMessageSoundRef.current = new Audio("/sounds/msg-pop-up.mp3");
+    incomingMessageSoundRef.current.volume = 0.45;
+  }, []);
 
   const railSpaces = useMemo(() => {
     if (state.status !== "ready") return [];
@@ -110,19 +145,171 @@ export default function SpacePage() {
     return { textChannels, voiceChannels };
   }, [state]);
 
-  const { setSpaceVoiceChannels } = voiceSession;
+  const chatChannels = useMemo(() => {
+    if (state.status !== "ready") return [];
+    return state.channels.filter(
+      (channel) =>
+        channel.channel_type === "text" || channel.channel_type === "voice",
+    );
+  }, [state]);
+
   useEffect(() => {
-    if (state.status !== "ready") return;
+    if (!chatChannels.length) {
+      setActiveChatChannelId(null);
+      return;
+    }
+
+    setActiveChatChannelId((prev) => {
+      if (prev && chatChannels.some((channel) => channel.id === prev)) {
+        return prev;
+      }
+
+      const firstTextChannel = chatChannels.find(
+        (channel) => channel.channel_type === "text",
+      );
+
+      return firstTextChannel?.id ?? chatChannels[0]?.id ?? null;
+    });
+  }, [chatChannels]);
+
+  const loadLatestChannelMessages = useCallback(
+    async (
+      channelId: string,
+      options?: {
+        signal?: AbortSignal;
+        silent?: boolean;
+      },
+    ) => {
+      const { signal, silent = false } = options ?? {};
+      if (!silent) {
+        setChatLoading(true);
+      }
+
+      try {
+        const page = await fetchChannelMessages(channelId, signal);
+        setChatMessages([...page.items].reverse());
+        setChatNextCursor(page.next_cursor ?? null);
+      } catch (err) {
+        if (signal?.aborted) return;
+        console.error("Failed to load channel messages", err);
+      } finally {
+        if (!silent) {
+          setChatLoading(false);
+        }
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!activeChatChannelId) {
+      setChatMessages([]);
+      setChatNextCursor(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    void loadLatestChannelMessages(activeChatChannelId, {
+      signal: controller.signal,
+    });
+
+    return () => controller.abort();
+  }, [activeChatChannelId, loadLatestChannelMessages]);
+
+  useEffect(() => {
+    return voiceSession.subscribeToEvents((event) => {
+      if (event.type === "chat.channel_compacted") {
+        const payload = event.payload as { channel_id?: string } | undefined;
+        if (!payload?.channel_id || payload.channel_id !== activeChatChannelId) {
+          return;
+        }
+
+        void loadLatestChannelMessages(payload.channel_id, { silent: true });
+        return;
+      }
+
+      if (event.type !== "chat.message_created") return;
+
+      const payload = event.payload as
+        | { channel_id?: string; message?: ChannelMessage }
+        | undefined;
+
+      if (!payload?.channel_id || !payload.message) return;
+      if (payload.message.author.id !== meSummary?.id) {
+        const sound = incomingMessageSoundRef.current;
+        if (sound) {
+          sound.currentTime = 0;
+          void sound.play().catch(() => {});
+        }
+      }
+      const isVisibleActiveChannel =
+        payload.channel_id === activeChatChannelId &&
+        chatOpen &&
+        !voicePanelExpanded;
+
+      if (isVisibleActiveChannel) {
+        setLocalChatMessages((prev) => {
+          const matchedIndex = prev.findIndex(
+            (message) =>
+              message.channelId === payload.channel_id &&
+              message.body === payload.message?.body &&
+              message.authorUsername === payload.message?.author.username &&
+              message.status === "sending",
+          );
+
+          if (matchedIndex === -1) {
+            return prev;
+          }
+
+          return prev.filter((_, index) => index !== matchedIndex);
+        });
+        setChatMessages((prev) => mergeChannelMessages(prev, payload.message!));
+        return;
+      }
+
+      setUnreadByChannelId((prev) => ({
+        ...prev,
+        [payload.channel_id!]: (prev[payload.channel_id!] ?? 0) + 1,
+      }));
+    });
+  }, [
+    activeChatChannelId,
+    chatOpen,
+    loadLatestChannelMessages,
+    meSummary?.id,
+    voicePanelExpanded,
+    voiceSession,
+  ]);
+
+  useEffect(() => {
+    if (!activeChatChannelId || !chatOpen || voicePanelExpanded) return;
+
+    setUnreadByChannelId((prev) => {
+      if (!prev[activeChatChannelId]) {
+        return prev;
+      }
+
+      const next = { ...prev };
+      delete next[activeChatChannelId];
+      return next;
+    });
+  }, [activeChatChannelId, chatOpen, voicePanelExpanded]);
+
+  const { setSpaceVoiceChannels } = voiceSession;
+  const readySpaceId = state.status === "ready" ? state.space.id : null;
+  const readySpaceName = state.status === "ready" ? state.space.name : null;
+  useEffect(() => {
+    if (!readySpaceId || !readySpaceName) return;
     setSpaceVoiceChannels(
-      state.space.id,
+      readySpaceId,
       voiceChannels.map((channel) => channel.id),
     );
-    if (voiceSession.activeVoiceSpaceId === state.space.id) {
-      voiceSession.setActiveVoiceSpaceName(state.space.name);
+    if (voiceSession.activeVoiceSpaceId === readySpaceId) {
+      voiceSession.setActiveVoiceSpaceName(readySpaceName);
     }
   }, [
-    state.status,
-    state.status === "ready" ? state.space.id : "",
+    readySpaceId,
+    readySpaceName,
     voiceChannels,
     setSpaceVoiceChannels,
     voiceSession,
@@ -151,7 +338,56 @@ export default function SpacePage() {
     return voiceMembersByChannelId[activeVoiceChannelId] ?? [];
   }, [activeVoiceChannelId, voiceMembersByChannelId]);
 
-  const meSummary = voiceSession.meSummary;
+  const activeChatChannel = useMemo(() => {
+    if (state.status !== "ready" || !activeChatChannelId) return null;
+    return (
+      state.channels.find((channel) => channel.id === activeChatChannelId) ?? null
+    );
+  }, [activeChatChannelId, state]);
+
+  const formattedChatMessages = useMemo(
+    () => {
+      const serverMessages = chatMessages.map((message) => ({
+        id: message.id,
+        createdAt: message.created_at,
+        author: message.author.username,
+        time: new Date(message.created_at).toLocaleTimeString("ru-RU", {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        text: message.body,
+      }));
+      const localMessages = localChatMessages
+        .filter((message) => message.channelId === activeChatChannelId)
+        .map((message) => ({
+          id: message.id,
+          createdAt: message.createdAt,
+          author: message.authorUsername,
+          time: new Date(message.createdAt).toLocaleTimeString("ru-RU", {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          text: message.body,
+          status: message.status,
+          error: message.error,
+        }));
+
+      return [...serverMessages, ...localMessages]
+        .sort(
+          (left, right) =>
+            new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
+        )
+        .map((message) => ({
+          id: message.id,
+          author: message.author,
+          time: message.time,
+          text: message.text,
+          status: message.status,
+          error: message.error,
+        }));
+    },
+    [activeChatChannelId, chatMessages, localChatMessages],
+  );
 
   const handleSelectVoiceChannel = useCallback(
     async (channelId: string) => {
@@ -214,7 +450,167 @@ export default function SpacePage() {
   const handleToggleChat = useCallback(() => {
     setChatOpen(true);
     voiceSession.setVoicePanelExpanded(false);
-  }, [voiceSession]);
+    if (activeVoiceChannelId) {
+      setActiveChatChannelId(activeVoiceChannelId);
+    }
+  }, [activeVoiceChannelId, voiceSession]);
+
+  const handleSelectTextChannel = useCallback(
+    (channelId: string) => {
+      setActiveChatChannelId(channelId);
+      setChatOpen(true);
+      voiceSession.setVoicePanelExpanded(false);
+    },
+    [voiceSession],
+  );
+
+  const handleSelectVoiceChannelChat = useCallback(
+    (channelId: string) => {
+      setActiveChatChannelId(channelId);
+      setChatOpen(true);
+      voiceSession.setVoicePanelExpanded(false);
+    },
+    [voiceSession],
+  );
+
+  const handleSendMessage = useCallback(
+    async (body: string) => {
+      if (!activeChatChannelId) return;
+
+      const messageId =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `local-${Date.now()}`;
+
+      const createdAt = new Date().toISOString();
+      const authorUsername = meSummary?.username ?? "Вы";
+
+      setLocalChatMessages((prev) => [
+        ...prev,
+        {
+          id: messageId,
+          channelId: activeChatChannelId,
+          body,
+          createdAt,
+          authorUsername,
+          status: "sending",
+        },
+      ]);
+
+      try {
+        const persistedMessageID = await sendChannelMessage(activeChatChannelId, body);
+
+        setLocalChatMessages((prev) =>
+          prev.filter((message) => message.id !== messageId),
+        );
+        setChatMessages((prev) =>
+          mergeChannelMessages(prev, {
+            id: persistedMessageID,
+            channel_id: activeChatChannelId,
+            author_id: meSummary?.id ?? "",
+            body,
+            created_at: createdAt,
+            author: {
+              id: meSummary?.id ?? "",
+              username: authorUsername,
+              is_admin: meSummary?.is_admin ?? false,
+            },
+          }),
+        );
+      } catch (err) {
+        const status = getHttpStatus(err);
+        const errorMessage =
+          status === 401
+            ? "Сессия истекла. Войдите снова и повторите отправку."
+            : "Не удалось отправить сообщение. Можно попробовать ещё раз.";
+
+        setLocalChatMessages((prev) =>
+          prev.map((message) =>
+            message.id === messageId
+              ? { ...message, status: "failed", error: errorMessage }
+              : message,
+          ),
+        );
+        redirectIfAuthOrOnboardingError(err);
+      }
+    },
+    [activeChatChannelId, meSummary],
+  );
+
+  const handleRetryMessage = useCallback(
+    async (messageId: string) => {
+      const localMessage = localChatMessages.find((message) => message.id === messageId);
+      if (!localMessage) return;
+
+      setLocalChatMessages((prev) =>
+        prev.map((message) =>
+          message.id === messageId
+            ? { ...message, status: "sending", error: undefined }
+            : message,
+        ),
+      );
+
+      try {
+        const persistedMessageID = await sendChannelMessage(
+          localMessage.channelId,
+          localMessage.body,
+        );
+
+        setLocalChatMessages((prev) =>
+          prev.filter((message) => message.id !== messageId),
+        );
+        setChatMessages((prev) =>
+          mergeChannelMessages(prev, {
+            id: persistedMessageID,
+            channel_id: localMessage.channelId,
+            author_id: meSummary?.id ?? "",
+            body: localMessage.body,
+            created_at: localMessage.createdAt,
+            author: {
+              id: meSummary?.id ?? "",
+              username: localMessage.authorUsername,
+              is_admin: meSummary?.is_admin ?? false,
+            },
+          }),
+        );
+      } catch (err) {
+        const status = getHttpStatus(err);
+        const errorMessage =
+          status === 401
+            ? "Сессия истекла. Войдите снова и повторите отправку."
+            : "Не удалось отправить сообщение. Можно попробовать ещё раз.";
+
+        setLocalChatMessages((prev) =>
+          prev.map((message) =>
+            message.id === messageId
+              ? { ...message, status: "failed", error: errorMessage }
+              : message,
+          ),
+        );
+        redirectIfAuthOrOnboardingError(err);
+      }
+    },
+    [localChatMessages, meSummary],
+  );
+
+  const handleLoadOlderMessages = useCallback(async () => {
+    if (!activeChatChannelId || !chatNextCursor || chatLoadingOlder) return;
+
+    setChatLoadingOlder(true);
+    try {
+      const page = await fetchChannelMessages(activeChatChannelId, {
+        cursor: chatNextCursor,
+      });
+      setChatMessages((prev) =>
+        prependChannelMessages(prev, [...page.items].reverse()),
+      );
+      setChatNextCursor(page.next_cursor ?? null);
+    } catch (err) {
+      console.error("Failed to load older channel messages", err);
+    } finally {
+      setChatLoadingOlder(false);
+    }
+  }, [activeChatChannelId, chatLoadingOlder, chatNextCursor]);
 
   useEffect(() => {
     if (voicePanelExpanded) setChatOpen(false);
@@ -383,7 +779,11 @@ export default function SpacePage() {
               voiceChannels={voiceChannels}
               voiceMembersByChannelId={voiceMembersByChannelId}
               activeVoiceChannelId={activeVoiceChannelId}
+              activeChatChannelId={activeChatChannelId}
+              unreadByChannelId={unreadByChannelId}
               speakingByUserId={voiceSpeakingByUserId}
+              onSelectTextChannel={handleSelectTextChannel}
+              onSelectVoiceChannelChat={handleSelectVoiceChannelChat}
               onSelectVoiceChannel={handleSelectVoiceChannel}
               onLeaveVoiceChannel={handleLeaveVoiceChannel}
               onToggleChat={handleToggleChat}
@@ -406,8 +806,19 @@ export default function SpacePage() {
             />
             {chatOpen && !voicePanelExpanded ? (
               <ChatPanel
-                channelTitle={textChannels[0] ? `# ${textChannels[0].name}` : "#"}
-                messages={chatMessages}
+                channelTitle={
+                  activeChatChannel
+                    ? `${activeChatChannel.channel_type === "voice" ? "🔊" : "#"} ${activeChatChannel.name}`
+                    : "#"
+                }
+                messages={formattedChatMessages}
+                loading={chatLoading}
+                disabled={!activeChatChannelId}
+                canLoadOlder={!!chatNextCursor}
+                loadingOlder={chatLoadingOlder}
+                onSendMessage={handleSendMessage}
+                onLoadOlder={handleLoadOlderMessages}
+                onRetryMessage={handleRetryMessage}
               />
             ) : null}
             {activeVoiceChannelId ? (

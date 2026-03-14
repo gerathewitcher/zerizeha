@@ -20,9 +20,13 @@ type SpaceSidebarProps = {
   voiceChannels: ChannelItem[];
   voiceMembersByChannelId?: Record<string, VoiceMember[]>;
   activeVoiceChannelId?: string | null;
+  activeChatChannelId?: string | null;
+  unreadByChannelId?: Record<string, number>;
   speakingByUserId?: Record<string, boolean>;
   mobileOpen?: boolean;
   onCloseMobile?: () => void;
+  onSelectTextChannel?: (channelId: string) => void;
+  onSelectVoiceChannelChat?: (channelId: string) => void;
   onSelectVoiceChannel?: (channelId: string) => void;
   onLeaveVoiceChannel?: () => void;
   onToggleChat?: () => void;
@@ -44,9 +48,13 @@ export default function SpaceSidebar({
   voiceChannels,
   voiceMembersByChannelId = {},
   activeVoiceChannelId,
+  activeChatChannelId,
+  unreadByChannelId = {},
   speakingByUserId,
   mobileOpen = false,
   onCloseMobile,
+  onSelectTextChannel,
+  onSelectVoiceChannelChat,
   onSelectVoiceChannel,
   onLeaveVoiceChannel,
   onToggleChat,
@@ -214,14 +222,24 @@ export default function SpaceSidebar({
             {textChannels.map((channel, index) => (
               <button
                 key={channel.id}
+                type="button"
+                onClick={() => onSelectTextChannel?.(channel.id)}
                 className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${
-                  index === 0
+                  channel.id === activeChatChannelId ||
+                  (!activeChatChannelId && index === 0)
                     ? "bg-(--bg-2) text-(--text)"
                     : "text-(--muted) hover:text-(--text)"
                 }`}
               >
                 <span className="text-(--subtle)">#</span>
-                {channel.name}
+                <span className="min-w-0 flex-1 truncate text-left">
+                  {channel.name}
+                </span>
+                {unreadByChannelId[channel.id] ? (
+                  <span className="rounded-full bg-(--accent) px-2 py-0.5 text-[11px] font-medium text-(--bg)">
+                    {unreadByChannelId[channel.id]}
+                  </span>
+                ) : null}
               </button>
             ))}
           </div>
@@ -382,16 +400,47 @@ export default function SpaceSidebar({
                           ) : null}
                         </div>
                       ) : null}
+                      <Tooltip label="Открыть чат канала">
+                        <button
+                          type="button"
+                          className={`flex h-6 w-6 items-center justify-center rounded-md border text-xs transition ${
+                            activeChatChannelId === channel.id && chatOpen
+                              ? "border-(--accent) text-(--accent)"
+                              : "border-(--border) text-(--muted) hover:border-(--accent) hover:text-(--accent)"
+                          }`}
+                          aria-label="Открыть чат канала"
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            onSelectVoiceChannelChat?.(channel.id);
+                          }}
+                        >
+                          <svg
+                            className="h-3.5 w-3.5"
+                            viewBox="0 0 16 16"
+                            fill="none"
+                            xmlns="http://www.w3.org/2000/svg"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M3 4.5C3 3.7 3.7 3 4.5 3H11.5C12.3 3 13 3.7 13 4.5V9.5C13 10.3 12.3 11 11.5 11H7L4 13V4.5Z"
+                              stroke="currentColor"
+                              strokeWidth="1.2"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </button>
+                      </Tooltip>
                       {activeVoiceChannelId === channel.id && (
                         <>
-                          <Tooltip label="Открыть чат">
+                          <Tooltip label="Показать чат активного канала">
                             <button
+                              type="button"
                               className={`flex h-6 w-6 items-center justify-center rounded-md border text-xs transition ${
                                 chatOpen
                                   ? "border-(--accent) text-(--accent)"
                                   : "border-(--border) text-(--muted) hover:border-(--accent) hover:text-(--accent)"
                               }`}
-                              aria-label="Открыть чат"
+                              aria-label="Показать чат активного канала"
                               onClick={onToggleChat}
                             >
                               <svg

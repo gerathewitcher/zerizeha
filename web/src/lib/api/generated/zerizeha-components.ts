@@ -7,6 +7,34 @@ import type * as Fetcher from "./zerizeha-fetcher";
 import { zerizehaFetch, ZerizehaFetcherExtraProps } from "./zerizeha-fetcher";
 import type * as Schemas from "./zerizeha-schemas";
 
+export type EventsWebSocketError = Fetcher.ErrorWrapper<
+  | {
+      status: 400;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type EventsWebSocketVariables = ZerizehaFetcherExtraProps;
+
+/**
+ * WebSocket with user-scoped product events across all accessible spaces.
+ * Event payload contract is documented in `backend/docs/EVENTS.md`.
+ */
+export const eventsWebSocket = (
+  variables: EventsWebSocketVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<undefined, EventsWebSocketError, undefined, {}, {}, {}>({
+    url: "/api/ws/events",
+    method: "get",
+    ...variables,
+    signal,
+  });
+
 export type WebRTCWebSocketPathParams = {
   connectionId: string;
 };
@@ -46,41 +74,6 @@ export const webRTCWebSocket = (
     ...variables,
     signal,
   });
-
-export type VoicePresenceWebSocketPathParams = {
-  spaceId: string;
-};
-
-export type VoicePresenceWebSocketError = Fetcher.ErrorWrapper<
-  | {
-      status: 400;
-      payload: Schemas.ErrorMap;
-    }
-  | {
-      status: 401;
-      payload: Schemas.ErrorMap;
-    }
->;
-
-export type VoicePresenceWebSocketVariables = {
-  pathParams: VoicePresenceWebSocketPathParams;
-} & ZerizehaFetcherExtraProps;
-
-/**
- * WebSocket that pushes voice members updates for a space (replaces members polling + heartbeat)
- */
-export const voicePresenceWebSocket = (
-  variables: VoicePresenceWebSocketVariables,
-  signal?: AbortSignal,
-) =>
-  zerizehaFetch<
-    undefined,
-    VoicePresenceWebSocketError,
-    undefined,
-    {},
-    {},
-    VoicePresenceWebSocketPathParams
-  >({ url: "/api/ws/voice/{spaceId}", method: "get", ...variables, signal });
 
 export type HealthError = Fetcher.ErrorWrapper<undefined>;
 
@@ -1115,6 +1108,115 @@ export const deleteChannel = (
     DeleteChannelPathParams
   >({ url: "/api/channels/{id}", method: "delete", ...variables, signal });
 
+export type ListChannelMessagesPathParams = {
+  id: string;
+};
+
+export type ListChannelMessagesQueryParams = {
+  /**
+   * @minimum 1
+   * @maximum 100
+   */
+  limit?: number;
+  cursor?: string;
+};
+
+export type ListChannelMessagesError = Fetcher.ErrorWrapper<
+  | {
+      status: 400;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 403;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 404;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type ListChannelMessagesVariables = {
+  pathParams: ListChannelMessagesPathParams;
+  queryParams?: ListChannelMessagesQueryParams;
+} & ZerizehaFetcherExtraProps;
+
+export const listChannelMessages = (
+  variables: ListChannelMessagesVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<
+    Schemas.ChannelMessagesPage,
+    ListChannelMessagesError,
+    undefined,
+    {},
+    ListChannelMessagesQueryParams,
+    ListChannelMessagesPathParams
+  >({
+    url: "/api/channels/{id}/messages",
+    method: "get",
+    ...variables,
+    signal,
+  });
+
+export type CreateChannelMessagePathParams = {
+  id: string;
+};
+
+export type CreateChannelMessageError = Fetcher.ErrorWrapper<
+  | {
+      status: 400;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 403;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 404;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type CreateChannelMessageVariables = {
+  body: Schemas.ChannelMessageToCreate;
+  pathParams: CreateChannelMessagePathParams;
+} & ZerizehaFetcherExtraProps;
+
+export const createChannelMessage = (
+  variables: CreateChannelMessageVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<
+    Schemas.IdResponse,
+    CreateChannelMessageError,
+    Schemas.ChannelMessageToCreate,
+    {},
+    {},
+    CreateChannelMessagePathParams
+  >({
+    url: "/api/channels/{id}/messages",
+    method: "post",
+    ...variables,
+    signal,
+  });
+
 export type CreateSpaceMemberError = Fetcher.ErrorWrapper<
   | {
       status: 400;
@@ -1176,9 +1278,9 @@ export const deleteSpaceMember = (
   >({ url: "/api/space-members/{id}", method: "delete", ...variables, signal });
 
 export const operationsByTag = {
+  events: { eventsWebSocket },
   voice: {
     webRTCWebSocket,
-    voicePresenceWebSocket,
     joinVoiceChannel,
     listVoiceMembers,
     voiceWebRTCBootstrap,
@@ -1216,5 +1318,7 @@ export const operationsByTag = {
     getChannelByID,
     updateChannel,
     deleteChannel,
+    listChannelMessages,
+    createChannelMessage,
   },
 };

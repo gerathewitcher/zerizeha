@@ -12,7 +12,6 @@ import {
 import VoiceWebRTC from "@/components/spaces/VoiceWebRTC";
 import { buildWebSocketUrl } from "@/lib/api/ws";
 import {
-  fetchVoiceMembers,
   joinVoiceChannelById,
   leaveVoiceChannel,
   updateVoiceState,
@@ -22,6 +21,11 @@ import type { VoiceMember } from "@/lib/api/generated/zerizeha-schemas";
 
 type ConnectionQuality = "good" | "ok" | "bad" | "unknown";
 type ScreenShareInfo = { feedId: string; userId: string };
+type EventsEnvelope = {
+  type?: string;
+  payload?: unknown;
+};
+type EventsListener = (event: EventsEnvelope) => void;
 
 type VoiceSessionContextValue = {
   activeVoiceChannelId: string | null;
@@ -87,6 +91,7 @@ type VoiceSessionContextValue = {
   toggleUserMute: (userId: string) => void;
   setVolume: (userId: string, volume: number) => void;
   clearVoiceFatalError: () => void;
+  subscribeToEvents: (listener: EventsListener) => () => void;
 };
 
 const VoiceSessionContext = createContext<VoiceSessionContextValue | null>(null);
@@ -107,6 +112,42 @@ const audioOutputStorageKey = "zerizeha.audio.outputDeviceId";
 const micLevelStorageKey = "zerizeha.audio.micLevel";
 const outputLevelStorageKey = "zerizeha.audio.outputLevel";
 
+function readStorageItem(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function readBooleanStorageItem(key: string, fallback = false): boolean {
+  const value = readStorageItem(key);
+  return value === null ? fallback : value === "true";
+}
+
+function readNumberStorageItem(key: string, fallback: number): number {
+  const value = readStorageItem(key);
+  if (value === null) return fallback;
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+
+  return Math.max(0, Math.min(1, parsed));
+}
+
+function readVolumeStorage(): Record<string, number> {
+  const raw = readStorageItem(volumeStorageKey);
+  if (!raw) return {};
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 export default function VoiceSessionProvider({
   children,
 }: {
@@ -121,7 +162,6 @@ export default function VoiceSessionProvider({
     null,
   );
   const [activeVoiceSpaceName, setActiveVoiceSpaceName] = useState("");
-  const [observedSpaceId, setObservedSpaceId] = useState<string | null>(null);
   const [voiceMembersByChannelId, setVoiceMembersByChannelId] = useState<
     Record<string, VoiceMember[]>
   >({});
@@ -147,28 +187,36 @@ export default function VoiceSessionProvider({
   const [voicePanelExpanded, setVoicePanelExpanded] = useState(false);
   const [voiceReady, setVoiceReady] = useState(false);
   const [voicePeerReady, setVoicePeerReady] = useState(false);
-  const [pttAvailable, setPttAvailable] = useState(false);
-  const [pttEnabled, setPttEnabled] = useState(false);
+  const [pttAvailable] = useState(
+    () => typeof window !== "undefined" && !!window.electron?.ptt,
+  );
+  const [pttEnabled, setPttEnabledState] = useState(() =>
+    readBooleanStorageItem(pttEnabledStorageKey),
+  );
   const [pttActive, setPttActive] = useState(false);
-  const [pttKey, setPttKey] = useState("KeyV");
+  const [pttKey, setPttKeyState] = useState(
+    () => readStorageItem(pttKeyStorageKey) ?? "KeyV",
+  );
   const [capturingPttKey, setCapturingPttKey] = useState(false);
-  const [micMuted, setMicMuted] = useState(false);
-  const [incomingMuted, setIncomingMuted] = useState(false);
+  const [micMuted, setMicMutedState] = useState(false);
+  const [incomingMuted, setIncomingMutedState] = useState(false);
   const [mutedUserIds, setMutedUserIds] = useState<Record<string, boolean>>({});
   const [volumeByUserId, setVolumeByUserId] = useState<Record<string, number>>(
-    {},
+    () => readVolumeStorage(),
   );
   const [audioInputDeviceId, setAudioInputDeviceId] = useState<string | null>(
-    null,
+    () => readStorageItem(audioInputStorageKey),
   );
   const [audioOutputDeviceId, setAudioOutputDeviceId] = useState<string | null>(
-    null,
+    () => readStorageItem(audioOutputStorageKey),
   );
-  const [micLevel, setMicLevel] = useState(1);
-  const [outputLevel, setOutputLevel] = useState(1);
-  const [voiceChannelIdsBySpaceId, setVoiceChannelIdsBySpaceId] = useState<
-    Record<string, string[]>
-  >({});
+  const [micLevel, setMicLevel] = useState(() =>
+    readNumberStorageItem(micLevelStorageKey, 1),
+  );
+  const [outputLevel, setOutputLevel] = useState(() =>
+    readNumberStorageItem(outputLevelStorageKey, 1),
+  );
+  const voiceChannelIdsBySpaceIdRef = useRef<Record<string, string[]>>({});
   const lastManualFocusAtRef = useRef(0);
   const lastActiveSpeakerIdRef = useRef<string | null>(null);
   const autoFocusedUserIdRef = useRef<string | null>(null);
@@ -182,6 +230,7 @@ export default function VoiceSessionProvider({
   const switchingChannelRef = useRef(false);
   const suppressMemberSoundsUntilRef = useRef(0);
   const lastUsernameRef = useRef<string | null>(null);
+  const eventListenersRef = useRef<Set<EventsListener>>(new Set());
 
   const meSummary = useMemo(() => {
     if (meState.state.status !== "ready") return null;
@@ -318,20 +367,6 @@ export default function VoiceSessionProvider({
     pttAvailable && pttEnabled ? pttActive && !micMuted : !micMuted;
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!window.electron?.ptt) return;
-    setPttAvailable(true);
-    try {
-      const storedKey = window.localStorage.getItem(pttKeyStorageKey);
-      if (storedKey) setPttKey(storedKey);
-      const storedEnabled = window.localStorage.getItem(pttEnabledStorageKey);
-      if (storedEnabled === "true") setPttEnabled(true);
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  useEffect(() => {
     if (!pttAvailable) return;
     const unlisten = window.electron?.ptt.onState((active) => {
       setPttActive(active);
@@ -349,7 +384,6 @@ export default function VoiceSessionProvider({
     } catch {
       // ignore
     }
-    if (!pttEnabled) setPttActive(false);
   }, [pttAvailable, pttEnabled]);
 
   useEffect(() => {
@@ -370,17 +404,17 @@ export default function VoiceSessionProvider({
         setCapturingPttKey(false);
         return;
       }
-      setPttKey(ev.code);
+      setPttKeyState(ev.code);
       setCapturingPttKey(false);
     };
     const mouseHandler = (ev: MouseEvent) => {
       if (ev.button === 3) {
         ev.preventDefault();
-        setPttKey("Mouse4");
+        setPttKeyState("Mouse4");
         setCapturingPttKey(false);
       } else if (ev.button === 4) {
         ev.preventDefault();
-        setPttKey("Mouse5");
+        setPttKeyState("Mouse5");
         setCapturingPttKey(false);
       }
     };
@@ -394,45 +428,11 @@ export default function VoiceSessionProvider({
 
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(volumeStorageKey);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, number>;
-      if (parsed && typeof parsed === "object") {
-        setVolumeByUserId(parsed);
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  useEffect(() => {
-    try {
       window.localStorage.setItem(volumeStorageKey, JSON.stringify(volumeByUserId));
     } catch {
       // ignore
     }
   }, [volumeByUserId]);
-
-  useEffect(() => {
-    try {
-      const inputId = window.localStorage.getItem(audioInputStorageKey);
-      const outputId = window.localStorage.getItem(audioOutputStorageKey);
-      const micRaw = window.localStorage.getItem(micLevelStorageKey);
-      const outRaw = window.localStorage.getItem(outputLevelStorageKey);
-      if (inputId) setAudioInputDeviceId(inputId);
-      if (outputId) setAudioOutputDeviceId(outputId);
-      if (micRaw) {
-        const value = Number(micRaw);
-        if (Number.isFinite(value)) setMicLevel(Math.max(0, Math.min(1, value)));
-      }
-      if (outRaw) {
-        const value = Number(outRaw);
-        if (Number.isFinite(value)) setOutputLevel(Math.max(0, Math.min(1, value)));
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
 
   useEffect(() => {
     try {
@@ -482,35 +482,22 @@ export default function VoiceSessionProvider({
     }).catch((err) => {
       console.error("Failed to update voice state", err);
     });
-    setVoiceMembersByChannelId((prev) => {
-      const members = prev[activeVoiceChannelId];
-      if (!members) return prev;
-      const next = members.map((member) =>
-        member.id === meSummary.id
-          ? { ...member, muted: micMuted, deafened: incomingMuted }
-          : member,
-      );
-      return { ...prev, [activeVoiceChannelId]: next };
-    });
   }, [activeVoiceChannelId, incomingMuted, micMuted, meSummary?.id]);
 
   const setSpaceVoiceChannels = useCallback(
     (spaceId: string, channelIds: string[]) => {
-      setVoiceChannelIdsBySpaceId((prev) => {
-        const existing = prev[spaceId];
-        if (
-          existing &&
-          existing.length === channelIds.length &&
-          existing.every((id, idx) => id === channelIds[idx])
-        ) {
-          return prev;
-        }
-        return {
-          ...prev,
-          [spaceId]: channelIds,
-        };
-      });
-      setObservedSpaceId((prev) => (prev === spaceId ? prev : spaceId));
+      const existing = voiceChannelIdsBySpaceIdRef.current[spaceId];
+      if (
+        existing &&
+        existing.length === channelIds.length &&
+        existing.every((id, idx) => id === channelIds[idx])
+      ) {
+        return;
+      }
+      voiceChannelIdsBySpaceIdRef.current = {
+        ...voiceChannelIdsBySpaceIdRef.current,
+        [spaceId]: channelIds,
+      };
     },
     [],
   );
@@ -566,6 +553,53 @@ export default function VoiceSessionProvider({
     [activeVoiceChannelId, meSummary],
   );
 
+  const syncCurrentVoiceMember = useCallback(
+    (nextMuted: boolean, nextDeafened: boolean) => {
+      if (!activeVoiceChannelId || !meSummary?.id) return;
+
+      setVoiceMembersByChannelId((prev) => {
+        const members = prev[activeVoiceChannelId];
+        if (!members) return prev;
+
+        const nextMembers = members.map((member) =>
+          member.id === meSummary.id
+            ? { ...member, muted: nextMuted, deafened: nextDeafened }
+            : member,
+        );
+
+        return { ...prev, [activeVoiceChannelId]: nextMembers };
+      });
+    },
+    [activeVoiceChannelId, meSummary],
+  );
+
+  const setPttEnabled = useCallback((value: boolean) => {
+    setPttEnabledState(value);
+    if (!value) {
+      setPttActive(false);
+    }
+  }, []);
+
+  const setPttKey = useCallback((value: string) => {
+    setPttKeyState(value);
+  }, []);
+
+  const setMicMuted = useCallback(
+    (value: boolean) => {
+      setMicMutedState(value);
+      syncCurrentVoiceMember(value, incomingMuted);
+    },
+    [incomingMuted, syncCurrentVoiceMember],
+  );
+
+  const setIncomingMuted = useCallback(
+    (value: boolean) => {
+      setIncomingMutedState(value);
+      syncCurrentVoiceMember(micMuted, value);
+    },
+    [micMuted, syncCurrentVoiceMember],
+  );
+
   const resetVoiceState = useCallback(() => {
     setVoiceFatalError(null);
     setActiveVoiceChannelId(null);
@@ -580,10 +614,11 @@ export default function VoiceSessionProvider({
     setFocusedUserId(null);
     setConnectionQuality("unknown");
     setVoiceReady(false);
+    setVoiceSpeakingByUserId({});
     voicePeerFeedsRef.current.clear();
     setVoicePeerReady(false);
     setVoicePanelExpanded(false);
-    if (meSummary?.id) {
+    if (meSummary) {
       setVoiceMembersByChannelId((prev) => {
         const next: Record<string, VoiceMember[]> = {};
         for (const [cid, members] of Object.entries(prev)) {
@@ -592,7 +627,7 @@ export default function VoiceSessionProvider({
         return next;
       });
     }
-  }, [meSummary?.id]);
+  }, [meSummary]);
 
   const leaveVoiceChannelSafe = useCallback(async () => {
     let success = false;
@@ -717,6 +752,14 @@ export default function VoiceSessionProvider({
     }));
   }, []);
 
+  const subscribeToEvents = useCallback((listener: EventsListener) => {
+    eventListenersRef.current.add(listener);
+
+    return () => {
+      eventListenersRef.current.delete(listener);
+    };
+  }, []);
+
   useEffect(() => {
     if (!voicePanelExpanded) return;
     if (selectedScreenFeedId) return;
@@ -726,8 +769,11 @@ export default function VoiceSessionProvider({
     const sinceManual = Date.now() - lastManualFocusAtRef.current;
     if (sinceManual < 6000) return;
     if (focusedUserId === lastSpeaker) return;
-    setFocusedUserId(lastSpeaker);
-    autoFocusedUserIdRef.current = lastSpeaker;
+    const timer = window.setTimeout(() => {
+      setFocusedUserId(lastSpeaker);
+      autoFocusedUserIdRef.current = lastSpeaker;
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [voicePanelExpanded, selectedScreenFeedId, voiceSpeakingByUserId, focusedUserId]);
 
   useEffect(() => {
@@ -737,18 +783,12 @@ export default function VoiceSessionProvider({
     if (!autoFocused) return;
     if (focusedUserId !== autoFocused) return;
     if (voiceSpeakingByUserId[autoFocused]) return;
-    setFocusedUserId(null);
-    autoFocusedUserIdRef.current = null;
+    const timer = window.setTimeout(() => {
+      setFocusedUserId(null);
+      autoFocusedUserIdRef.current = null;
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [voicePanelExpanded, selectedScreenFeedId, voiceSpeakingByUserId, focusedUserId]);
-
-  useEffect(() => {
-    if (!activeVoiceChannelId) setVoiceSpeakingByUserId({});
-    if (!activeVoiceChannelId) setVoiceReady(false);
-    if (!activeVoiceChannelId) {
-      voicePeerFeedsRef.current.clear();
-      setVoicePeerReady(false);
-    }
-  }, [activeVoiceChannelId]);
 
   const handleVoiceSubscriberReady = useCallback((feedId: string) => {
     if (!feedId) return;
@@ -765,18 +805,7 @@ export default function VoiceSessionProvider({
     }
   }, []);
 
-  const observedVoiceChannelIds = useMemo(() => {
-    if (!observedSpaceId) return [];
-    return voiceChannelIdsBySpaceId[observedSpaceId] ?? [];
-  }, [observedSpaceId, voiceChannelIdsBySpaceId]);
-
-  const activeVoiceChannelIds = useMemo(() => {
-    if (!activeVoiceSpaceId) return [];
-    return voiceChannelIdsBySpaceId[activeVoiceSpaceId] ?? [];
-  }, [activeVoiceSpaceId, voiceChannelIdsBySpaceId]);
-
   useEffect(() => {
-    if (!observedSpaceId) return;
     let cancelled = false;
     let ws: WebSocket | null = null;
     let retryTimer: number | null = null;
@@ -784,46 +813,40 @@ export default function VoiceSessionProvider({
 
     const connect = () => {
       if (cancelled) return;
-      const url = buildWebSocketUrl(`/api/ws/voice/${observedSpaceId}`);
+      const url = buildWebSocketUrl("/api/ws/events");
       ws = new WebSocket(url);
 
-      ws.onopen = async () => {
+      ws.onopen = () => {
         retryMs = 500;
-        try {
-          if (!observedVoiceChannelIds.length) return;
-          const controller = new AbortController();
-          const results = await Promise.all(
-            observedVoiceChannelIds.map((id) =>
-              fetchVoiceMembers(id, controller.signal),
-            ),
-          );
-          const next: Record<string, VoiceMember[]> = {};
-          observedVoiceChannelIds.forEach((id, idx) => {
-            next[id] = results[idx];
-          });
-          setVoiceMembersByChannelId((prev) => ({ ...prev, ...next }));
-        } catch {
-          // ignore
-        }
       };
 
       ws.onmessage = (ev) => {
-        let msg: any;
+        let msg: EventsEnvelope;
         try {
-          msg = JSON.parse(String(ev.data));
+          msg = JSON.parse(String(ev.data)) as EventsEnvelope;
         } catch {
           return;
         }
-        if (msg?.type === "snapshot") {
-          const map = msg?.payload?.voice_members_by_channel_id;
+        for (const listener of eventListenersRef.current) {
+          listener(msg);
+        }
+        if (msg?.type === "voice.snapshot") {
+          const map = (
+            msg.payload as
+              | { voice_members_by_channel_id?: Record<string, VoiceMember[]> }
+              | undefined
+          )?.voice_members_by_channel_id;
           if (map && typeof map === "object") {
             setVoiceMembersByChannelId((prev) => ({ ...prev, ...map }));
           }
           return;
         }
-        if (msg?.type === "channel_members") {
-          const channelId = msg?.payload?.channel_id;
-          const members = msg?.payload?.members;
+        if (msg?.type === "voice.channel_members") {
+          const payload = msg.payload as
+            | { channel_id?: string; members?: VoiceMember[] }
+            | undefined;
+          const channelId = payload?.channel_id;
+          const members = payload?.members;
           if (!channelId || !Array.isArray(members)) return;
           setVoiceMembersByChannelId((prev) => ({ ...prev, [channelId]: members }));
         }
@@ -848,83 +871,7 @@ export default function VoiceSessionProvider({
         // ignore
       }
     };
-  }, [observedSpaceId, observedVoiceChannelIds]);
-
-  useEffect(() => {
-    if (!activeVoiceSpaceId) return;
-    if (activeVoiceSpaceId === observedSpaceId) return;
-    let cancelled = false;
-    let ws: WebSocket | null = null;
-    let retryTimer: number | null = null;
-    let retryMs = 500;
-
-    const connect = () => {
-      if (cancelled) return;
-      const url = buildWebSocketUrl(`/api/ws/voice/${activeVoiceSpaceId}`);
-      ws = new WebSocket(url);
-
-      ws.onopen = async () => {
-        retryMs = 500;
-        try {
-          if (!activeVoiceChannelIds.length) return;
-          const controller = new AbortController();
-          const results = await Promise.all(
-            activeVoiceChannelIds.map((id) =>
-              fetchVoiceMembers(id, controller.signal),
-            ),
-          );
-          const next: Record<string, VoiceMember[]> = {};
-          activeVoiceChannelIds.forEach((id, idx) => {
-            next[id] = results[idx];
-          });
-          setVoiceMembersByChannelId((prev) => ({ ...prev, ...next }));
-        } catch {
-          // ignore
-        }
-      };
-
-      ws.onmessage = (ev) => {
-        let msg: any;
-        try {
-          msg = JSON.parse(String(ev.data));
-        } catch {
-          return;
-        }
-        if (msg?.type === "snapshot") {
-          const map = msg?.payload?.voice_members_by_channel_id;
-          if (map && typeof map === "object") {
-            setVoiceMembersByChannelId((prev) => ({ ...prev, ...map }));
-          }
-          return;
-        }
-        if (msg?.type === "channel_members") {
-          const channelId = msg?.payload?.channel_id;
-          const members = msg?.payload?.members;
-          if (!channelId || !Array.isArray(members)) return;
-          setVoiceMembersByChannelId((prev) => ({ ...prev, [channelId]: members }));
-        }
-      };
-
-      ws.onclose = () => {
-        if (cancelled) return;
-        retryTimer = window.setTimeout(() => {
-          retryMs = Math.min(8000, Math.round(retryMs * 1.6));
-          connect();
-        }, retryMs);
-      };
-    };
-
-    connect();
-    return () => {
-      cancelled = true;
-      if (retryTimer) window.clearTimeout(retryTimer);
-      try {
-        ws?.close();
-      } catch {
-        // ignore
-      }
-    };
-  }, [activeVoiceSpaceId, activeVoiceChannelIds, observedSpaceId]);
+  }, []);
 
   const contextValue = useMemo<VoiceSessionContextValue>(
     () => ({
@@ -981,6 +928,7 @@ export default function VoiceSessionProvider({
       toggleUserMute: handleToggleUserMute,
       setVolume: handleVolumeChange,
       clearVoiceFatalError: () => setVoiceFatalError(null),
+      subscribeToEvents,
     }),
     [
       activeVoiceChannelId,
@@ -1035,6 +983,7 @@ export default function VoiceSessionProvider({
       handleFocusUser,
       handleToggleUserMute,
       handleVolumeChange,
+      subscribeToEvents,
     ],
   );
 

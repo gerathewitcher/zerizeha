@@ -84,6 +84,33 @@ export type Channel = {
   updated_at?: string;
 };
 
+export type ChannelMessageAuthor = {
+  id: string;
+  username: string;
+  is_admin: boolean;
+};
+
+export type ChannelMessage = {
+  id: string;
+  channel_id: string;
+  author_id: string;
+  body: string;
+  /**
+   * @format date-time
+   */
+  created_at: string;
+  author: ChannelMessageAuthor;
+};
+
+export type ChannelMessageToCreate = {
+  body: string;
+};
+
+export type ChannelMessagesPage = {
+  items: ChannelMessage[];
+  next_cursor?: string;
+};
+
 export type SpaceMember = {
   id: string;
   space_id: string;
