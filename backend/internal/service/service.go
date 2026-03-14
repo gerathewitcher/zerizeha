@@ -41,6 +41,18 @@ type SpaceService interface {
 	ListSpaceMembers(spaceID string) ([]dto.SpaceMemberWithUser, error)
 }
 
+type ChatService interface {
+	CreateChannelMessage(message dto.ChannelMessageToCreate) (messageID string, err error)
+	GetChannelMessageByID(id string) (dto.ChannelMessage, error)
+	ListChannelMessages(channelID string, limit int, cursor *dto.ChannelMessageCursor) ([]dto.ChannelMessage, *dto.ChannelMessageCursor, error)
+	CleanupExpiredMessages(ctx context.Context) error
+}
+
+type ChatEventPublisher interface {
+	PublishChannelMessageCreated(recipientUserIDs []string, event dto.ChannelMessageCreatedEvent) error
+	PublishChannelCompacted(recipientUserIDs []string, event dto.ChannelCompactedEvent) error
+}
+
 type VoiceService interface {
 	Join(ctx context.Context, userID string, channelID string) error
 	Leave(ctx context.Context, userID string) error

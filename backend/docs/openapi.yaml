@@ -6,21 +6,17 @@ info:
 servers:
   - url: /
 paths:
-  /api/ws/webrtc/{connectionId}:
+  /api/ws/events:
     get:
-      operationId: WebRTCWebSocket
-      summary: webrtc signaling websocket
-      description: WebSocket upgrade endpoint for Janus signaling (offer/answer/trickle)
+      operationId: EventsWebSocket
+      summary: user scoped events websocket
+      description: |
+        WebSocket with user-scoped product events across all accessible spaces.
+        Event payload contract is documented in `backend/docs/EVENTS.md`.
       tags:
-        - Voice
+        - Events
       security:
         - ApiKeyAuth: []
-      parameters:
-        - in: path
-          name: connectionId
-          required: true
-          schema:
-            type: string
       responses:
         '101':
           description: Switching Protocols
@@ -36,18 +32,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorMap'
-  /api/ws/voice/{spaceId}:
+  /api/ws/webrtc/{connectionId}:
     get:
-      operationId: VoicePresenceWebSocket
-      summary: voice presence websocket
-      description: WebSocket that pushes voice members updates for a space (replaces members polling + heartbeat)
+      operationId: WebRTCWebSocket
+      summary: webrtc signaling websocket
+      description: WebSocket upgrade endpoint for Janus signaling (offer/answer/trickle)
       tags:
         - Voice
       security:
         - ApiKeyAuth: []
       parameters:
         - in: path
-          name: spaceId
+          name: connectionId
           required: true
           schema:
             type: string
@@ -1151,6 +1147,125 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorMap'
+  /api/channels/{id}/messages:
+    get:
+      operationId: ListChannelMessages
+      summary: list channel chat messages
+      tags:
+        - Channels
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+        - in: query
+          name: cursor
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelMessagesPage'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+    post:
+      operationId: CreateChannelMessage
+      summary: create channel chat message
+      tags:
+        - Channels
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChannelMessageToCreate'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '404':
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorMap'
 
   /api/space-members:
     post:
@@ -1338,6 +1453,57 @@ components:
         updated_at:
           type: string
           format: date-time
+      additionalProperties: false
+
+    ChannelMessageAuthor:
+      type: object
+      required: [id, username, is_admin]
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        is_admin:
+          type: boolean
+      additionalProperties: false
+
+    ChannelMessage:
+      type: object
+      required: [id, channel_id, author_id, body, created_at, author]
+      properties:
+        id:
+          type: string
+        channel_id:
+          type: string
+        author_id:
+          type: string
+        body:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        author:
+          $ref: '#/components/schemas/ChannelMessageAuthor'
+      additionalProperties: false
+
+    ChannelMessageToCreate:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+      additionalProperties: false
+
+    ChannelMessagesPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChannelMessage'
+        next_cursor:
+          type: string
       additionalProperties: false
 
     SpaceMember:

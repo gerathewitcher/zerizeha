@@ -60,6 +60,34 @@ type Channel struct {
 // ChannelChannelType defines model for Channel.ChannelType.
 type ChannelChannelType string
 
+// ChannelMessage defines model for ChannelMessage.
+type ChannelMessage struct {
+	Author    ChannelMessageAuthor `json:"author"`
+	AuthorId  string               `json:"author_id"`
+	Body      string               `json:"body"`
+	ChannelId string               `json:"channel_id"`
+	CreatedAt time.Time            `json:"created_at"`
+	Id        string               `json:"id"`
+}
+
+// ChannelMessageAuthor defines model for ChannelMessageAuthor.
+type ChannelMessageAuthor struct {
+	Id       string `json:"id"`
+	IsAdmin  bool   `json:"is_admin"`
+	Username string `json:"username"`
+}
+
+// ChannelMessageToCreate defines model for ChannelMessageToCreate.
+type ChannelMessageToCreate struct {
+	Body string `json:"body"`
+}
+
+// ChannelMessagesPage defines model for ChannelMessagesPage.
+type ChannelMessagesPage struct {
+	Items      []ChannelMessage `json:"items"`
+	NextCursor *string          `json:"next_cursor,omitempty"`
+}
+
 // ChannelToCreate defines model for ChannelToCreate.
 type ChannelToCreate struct {
 	ChannelType ChannelToCreateChannelType `json:"channel_type"`
@@ -224,6 +252,12 @@ type YandexCallbackParams struct {
 	State string `form:"state" json:"state"`
 }
 
+// ListChannelMessagesParams defines parameters for ListChannelMessages.
+type ListChannelMessagesParams struct {
+	Limit  *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
 // SearchUsersParams defines parameters for SearchUsers.
 type SearchUsersParams struct {
 	Query  *string `form:"query,omitempty" json:"query,omitempty"`
@@ -242,6 +276,9 @@ type CreateChannelJSONRequestBody = ChannelToCreate
 
 // UpdateChannelJSONRequestBody defines body for UpdateChannel for application/json ContentType.
 type UpdateChannelJSONRequestBody = ChannelToUpdate
+
+// CreateChannelMessageJSONRequestBody defines body for CreateChannelMessage for application/json ContentType.
+type CreateChannelMessageJSONRequestBody = ChannelMessageToCreate
 
 // UpdateMeJSONRequestBody defines body for UpdateMe for application/json ContentType.
 type UpdateMeJSONRequestBody = MeToUpdate
@@ -308,6 +345,12 @@ type ServerInterface interface {
 	// update channel
 	// (PATCH /api/channels/{id})
 	UpdateChannel(c *fiber.Ctx, id string) error
+	// list channel chat messages
+	// (GET /api/channels/{id}/messages)
+	ListChannelMessages(c *fiber.Ctx, id string, params ListChannelMessagesParams) error
+	// create channel chat message
+	// (POST /api/channels/{id}/messages)
+	CreateChannelMessage(c *fiber.Ctx, id string) error
 	// get current user
 	// (GET /api/me)
 	GetMe(c *fiber.Ctx) error
@@ -362,9 +405,9 @@ type ServerInterface interface {
 	// update voice state (muted/deafened)
 	// (POST /api/voice/state)
 	UpdateVoiceState(c *fiber.Ctx) error
-	// voice presence websocket
-	// (GET /api/ws/voice/{spaceId})
-	VoicePresenceWebSocket(c *fiber.Ctx, spaceId string) error
+	// user scoped events websocket
+	// (GET /api/ws/events)
+	EventsWebSocket(c *fiber.Ctx) error
 	// webrtc signaling websocket
 	// (GET /api/ws/webrtc/{connectionId})
 	WebRTCWebSocket(c *fiber.Ctx, connectionId string) error
@@ -701,6 +744,65 @@ func (siw *ServerInterfaceWrapper) UpdateChannel(c *fiber.Ctx) error {
 	return siw.Handler.UpdateChannel(c, id)
 }
 
+// ListChannelMessages operation middleware
+func (siw *ServerInterfaceWrapper) ListChannelMessages(c *fiber.Ctx) error {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Params("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter id: %w", err).Error())
+	}
+
+	c.Context().SetUserValue(ApiKeyAuthScopes, []string{})
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListChannelMessagesParams
+
+	var query url.Values
+	query, err = url.ParseQuery(string(c.Request().URI().QueryString()))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for query string: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", query, &params.Limit)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter limit: %w", err).Error())
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "cursor", query, &params.Cursor)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter cursor: %w", err).Error())
+	}
+
+	return siw.Handler.ListChannelMessages(c, id, params)
+}
+
+// CreateChannelMessage operation middleware
+func (siw *ServerInterfaceWrapper) CreateChannelMessage(c *fiber.Ctx) error {
+
+	var err error
+
+	// ------------- Path parameter "id" -------------
+	var id string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Params("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true})
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter id: %w", err).Error())
+	}
+
+	c.Context().SetUserValue(ApiKeyAuthScopes, []string{})
+
+	return siw.Handler.CreateChannelMessage(c, id)
+}
+
 // GetMe operation middleware
 func (siw *ServerInterfaceWrapper) GetMe(c *fiber.Ctx) error {
 
@@ -975,22 +1077,12 @@ func (siw *ServerInterfaceWrapper) UpdateVoiceState(c *fiber.Ctx) error {
 	return siw.Handler.UpdateVoiceState(c)
 }
 
-// VoicePresenceWebSocket operation middleware
-func (siw *ServerInterfaceWrapper) VoicePresenceWebSocket(c *fiber.Ctx) error {
-
-	var err error
-
-	// ------------- Path parameter "spaceId" -------------
-	var spaceId string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "spaceId", c.Params("spaceId"), &spaceId, runtime.BindStyledParameterOptions{Explode: false, Required: true})
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, fmt.Errorf("Invalid format for parameter spaceId: %w", err).Error())
-	}
+// EventsWebSocket operation middleware
+func (siw *ServerInterfaceWrapper) EventsWebSocket(c *fiber.Ctx) error {
 
 	c.Context().SetUserValue(ApiKeyAuthScopes, []string{})
 
-	return siw.Handler.VoicePresenceWebSocket(c, spaceId)
+	return siw.Handler.EventsWebSocket(c)
 }
 
 // WebRTCWebSocket operation middleware
@@ -1064,6 +1156,10 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 
 	router.Patch(options.BaseURL+"/api/channels/:id", wrapper.UpdateChannel)
 
+	router.Get(options.BaseURL+"/api/channels/:id/messages", wrapper.ListChannelMessages)
+
+	router.Post(options.BaseURL+"/api/channels/:id/messages", wrapper.CreateChannelMessage)
+
 	router.Get(options.BaseURL+"/api/me", wrapper.GetMe)
 
 	router.Patch(options.BaseURL+"/api/me", wrapper.UpdateMe)
@@ -1100,7 +1196,7 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 
 	router.Post(options.BaseURL+"/api/voice/state", wrapper.UpdateVoiceState)
 
-	router.Get(options.BaseURL+"/api/ws/voice/:spaceId", wrapper.VoicePresenceWebSocket)
+	router.Get(options.BaseURL+"/api/ws/events", wrapper.EventsWebSocket)
 
 	router.Get(options.BaseURL+"/api/ws/webrtc/:connectionId", wrapper.WebRTCWebSocket)
 
@@ -1109,49 +1205,52 @@ func RegisterHandlersWithOptions(router fiber.Router, si ServerInterface, option
 // Base64 encoded, gzipped, json marshaled Swagger object
 var swaggerSpec = []string{
 
-	"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",
-	"/07mNBBTawAA",
+	"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",
 }
 
 // GetSwagger returns the content of the embedded swagger specification file

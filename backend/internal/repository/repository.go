@@ -1,6 +1,9 @@
 package repository
 
-import "zerizeha/internal/dto"
+import (
+	"time"
+	"zerizeha/internal/dto"
+)
 
 type UserRepository interface {
 	CreateUser(user dto.UserToCreate) (userID string, err error)
@@ -35,4 +38,11 @@ type SpaceRepository interface {
 	GetSpaceMemberByID(id string) (dto.SpaceMember, error)
 	DeleteSpaceMemberBySpaceUser(spaceID string, userID string) error
 	ListSpaceMembers(spaceID string) ([]dto.SpaceMemberWithUser, error)
+}
+
+type ChatRepository interface {
+	CreateChannelMessage(message dto.ChannelMessageToCreate) (messageID string, err error)
+	GetChannelMessageByID(id string) (dto.ChannelMessage, error)
+	ListChannelMessages(channelID string, limit int, cursor *dto.ChannelMessageCursor) ([]dto.ChannelMessage, *dto.ChannelMessageCursor, error)
+	DeleteChannelMessagesBefore(createdBefore time.Time) ([]dto.ChannelMessageCleanupResult, error)
 }

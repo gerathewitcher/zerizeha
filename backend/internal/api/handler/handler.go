@@ -11,12 +11,13 @@ type Handler struct {
 	cfg         config.Config
 	authService authservice.Service
 	space       service.SpaceService
+	chat        service.ChatService
 	user        service.UserService
 	voice       service.VoiceService
 	janus       service.JanusService
 
-	webrtc *webrtcStore
-	voiceHub *voiceHub
+	webrtc    *webrtcStore
+	eventsHub *EventsHub
 }
 
 var _ api.ServerInterface = (*Handler)(nil)
@@ -26,15 +27,19 @@ const (
 	UserLocalKey   = "user"
 )
 
-func New(cfg config.Config, authService authservice.Service, space service.SpaceService, user service.UserService, voice service.VoiceService, janus service.JanusService) *Handler {
+func New(cfg config.Config, authService authservice.Service, space service.SpaceService, chat service.ChatService, user service.UserService, voice service.VoiceService, janus service.JanusService, eventsHub *EventsHub) *Handler {
+	if eventsHub == nil {
+		eventsHub = NewEventsHub()
+	}
 	return &Handler{
 		cfg:         cfg,
 		authService: authService,
 		space:       space,
+		chat:        chat,
 		user:        user,
 		voice:       voice,
 		janus:       janus,
 		webrtc:      newWebRTCStore(),
-		voiceHub:    newVoiceHub(),
+		eventsHub:   eventsHub,
 	}
 }

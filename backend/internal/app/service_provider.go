@@ -3,16 +3,19 @@ package app
 import (
 	"context"
 	"log"
+	apihandler "zerizeha/internal/api/handler"
 	"zerizeha/internal/config"
 	"zerizeha/internal/repository"
+	pgChatRepo "zerizeha/internal/repository/postgres/chat"
 	pgSpaceRepo "zerizeha/internal/repository/postgres/space"
 	pgUserRepo "zerizeha/internal/repository/postgres/user"
 	"zerizeha/internal/service"
 	authservice "zerizeha/internal/service/auth"
+	chatservice "zerizeha/internal/service/chat"
+	janusservice "zerizeha/internal/service/janus"
 	spaceservice "zerizeha/internal/service/space"
 	userservice "zerizeha/internal/service/user"
 	voiceservice "zerizeha/internal/service/voice"
-	janusservice "zerizeha/internal/service/janus"
 	"zerizeha/pkg/closer"
 	"zerizeha/pkg/db"
 	"zerizeha/pkg/db/pg"
@@ -27,8 +30,11 @@ type serviceProvider struct {
 	redisClient  *redis.Client
 	userRepo     repository.UserRepository
 	spaceRepo    repository.SpaceRepository
+	chatRepo     repository.ChatRepository
 	userService  service.UserService
 	spaceService service.SpaceService
+	chatService  service.ChatService
+	eventsHub    *apihandler.EventsHub
 	voiceService service.VoiceService
 	janusService service.JanusService
 	authService  authservice.Service
@@ -96,6 +102,13 @@ func (s *serviceProvider) SpaceRepository(ctx context.Context) repository.SpaceR
 	return s.spaceRepo
 }
 
+func (s *serviceProvider) ChatRepository(ctx context.Context) repository.ChatRepository {
+	if s.chatRepo == nil {
+		s.chatRepo = pgChatRepo.NewPostgresChatRepo(s.DBClient(ctx))
+	}
+	return s.chatRepo
+}
+
 func (s *serviceProvider) UserService(ctx context.Context) service.UserService {
 	if s.userService == nil {
 		s.userService = userservice.NewUserService(s.UserRepository(ctx))
@@ -108,6 +121,25 @@ func (s *serviceProvider) SpaceService(ctx context.Context) service.SpaceService
 		s.spaceService = spaceservice.NewSpaceService(s.SpaceRepository(ctx))
 	}
 	return s.spaceService
+}
+
+func (s *serviceProvider) ChatService(ctx context.Context) service.ChatService {
+	if s.chatService == nil {
+		s.chatService = chatservice.NewChatService(
+			s.ChatRepository(ctx),
+			s.SpaceService(ctx),
+			apihandler.NewChatEventPublisher(s.EventsHub()),
+			s.Config().ChatMessageCleanupTTL(),
+		)
+	}
+	return s.chatService
+}
+
+func (s *serviceProvider) EventsHub() *apihandler.EventsHub {
+	if s.eventsHub == nil {
+		s.eventsHub = apihandler.NewEventsHub()
+	}
+	return s.eventsHub
 }
 
 func (s *serviceProvider) AuthService(ctx context.Context) authservice.Service {

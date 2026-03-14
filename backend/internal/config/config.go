@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -41,6 +42,7 @@ const (
 	adminEmailsEnvName           = "ADMIN_EMAILS"
 	redisAddrEnvName             = "REDIS_ADDR"
 	voicePresenceTTLSecEnvName   = "VOICE_PRESENCE_TTL_SEC"
+	chatMessageCleanupTTLEnvName = "CHAT_MESSAGE_CLEANUP_TTL"
 	janusWSURLEnvName            = "JANUS_WS_URL"
 )
 
@@ -51,6 +53,7 @@ type Config interface {
 	AdminEmails() []string
 	RedisConfig() RedisConfig
 	VoicePresenceTTLSeconds() int
+	ChatMessageCleanupTTL() time.Duration
 	JanusWSURL() string
 }
 
@@ -83,24 +86,25 @@ type config struct {
 	oauth    OAuthConfig
 	admins   []string
 	voiceTTL int
+	chatTTL  time.Duration
 	janusWS  string
 }
 
 type OAuthConfig struct {
-	GoogleClientID       string
-	GoogleClientSecret   string
-	GoogleDesktopID      string
-	GoogleDesktopSecret  string
+	GoogleClientID        string
+	GoogleClientSecret    string
+	GoogleDesktopID       string
+	GoogleDesktopSecret   string
 	GoogleDesktopRedirect string
-	GithubClientID       string
-	GithubClientSecret   string
-	YandexClientID       string
-	YandexClientSecret   string
-	RedirectBase         string
-	FrontendBase         string
-	JWTSecret            string
-	AccessTokenTTLMin    int
-	RefreshTokenTTLHours int
+	GithubClientID        string
+	GithubClientSecret    string
+	YandexClientID        string
+	YandexClientSecret    string
+	RedirectBase          string
+	FrontendBase          string
+	JWTSecret             string
+	AccessTokenTTLMin     int
+	RefreshTokenTTLHours  int
 }
 
 func NewConfig() (Config, error) {
@@ -157,6 +161,13 @@ func NewConfig() (Config, error) {
 		}
 	}
 
+	chatTTL := 72 * time.Hour
+	if value := strings.TrimSpace(os.Getenv(chatMessageCleanupTTLEnvName)); value != "" {
+		if parsed, err := time.ParseDuration(value); err == nil && parsed > 0 {
+			chatTTL = parsed
+		}
+	}
+
 	config := &config{
 		server: ServerConfig{
 			Port: vars[serverPortEnvName],
@@ -168,23 +179,24 @@ func NewConfig() (Config, error) {
 			dsn: vars[pgDSNEnvName],
 		},
 		oauth: OAuthConfig{
-			GoogleClientID:       vars[googleClientIDEnvName],
-			GoogleClientSecret:   vars[googleClientSecretEnvName],
-			GoogleDesktopID:      googleDesktopID,
-			GoogleDesktopSecret:  googleDesktopSecret,
+			GoogleClientID:        vars[googleClientIDEnvName],
+			GoogleClientSecret:    vars[googleClientSecretEnvName],
+			GoogleDesktopID:       googleDesktopID,
+			GoogleDesktopSecret:   googleDesktopSecret,
 			GoogleDesktopRedirect: googleDesktopRedirect,
-			GithubClientID:       vars[githubClientIDEnvName],
-			GithubClientSecret:   vars[githubClientSecretEnvName],
-			YandexClientID:       yandexClientID,
-			YandexClientSecret:   yandexClientSecret,
-			RedirectBase:         vars[oauthRedirectBaseEnvName],
-			FrontendBase:         vars[frontendBaseEnvName],
-			JWTSecret:            vars[jwtSecretEnvName],
-			AccessTokenTTLMin:    accessTokenTTLMin,
-			RefreshTokenTTLHours: refreshTokenTTLHours,
+			GithubClientID:        vars[githubClientIDEnvName],
+			GithubClientSecret:    vars[githubClientSecretEnvName],
+			YandexClientID:        yandexClientID,
+			YandexClientSecret:    yandexClientSecret,
+			RedirectBase:          vars[oauthRedirectBaseEnvName],
+			FrontendBase:          vars[frontendBaseEnvName],
+			JWTSecret:             vars[jwtSecretEnvName],
+			AccessTokenTTLMin:     accessTokenTTLMin,
+			RefreshTokenTTLHours:  refreshTokenTTLHours,
 		},
 		admins:   admins,
 		voiceTTL: voiceTTL,
+		chatTTL:  chatTTL,
 		janusWS:  janusWSURL,
 	}
 	return config, nil
@@ -212,6 +224,10 @@ func (c *config) AdminEmails() []string {
 
 func (c *config) VoicePresenceTTLSeconds() int {
 	return c.voiceTTL
+}
+
+func (c *config) ChatMessageCleanupTTL() time.Duration {
+	return c.chatTTL
 }
 
 func (c *config) JanusWSURL() string {
