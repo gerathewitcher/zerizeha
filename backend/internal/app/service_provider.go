@@ -16,6 +16,7 @@ import (
 	spaceservice "zerizeha/internal/service/space"
 	userservice "zerizeha/internal/service/user"
 	voiceservice "zerizeha/internal/service/voice"
+	voicepresenceservice "zerizeha/internal/service/voicepresence"
 	"zerizeha/pkg/closer"
 	"zerizeha/pkg/db"
 	"zerizeha/pkg/db/pg"
@@ -25,19 +26,20 @@ import (
 )
 
 type serviceProvider struct {
-	config       config.Config
-	dbClient     db.Client
-	redisClient  *redis.Client
-	userRepo     repository.UserRepository
-	spaceRepo    repository.SpaceRepository
-	chatRepo     repository.ChatRepository
-	userService  service.UserService
-	spaceService service.SpaceService
-	chatService  service.ChatService
-	eventsHub    *apihandler.EventsHub
-	voiceService service.VoiceService
-	janusService service.JanusService
-	authService  authservice.Service
+	config               config.Config
+	dbClient             db.Client
+	redisClient          *redis.Client
+	userRepo             repository.UserRepository
+	spaceRepo            repository.SpaceRepository
+	chatRepo             repository.ChatRepository
+	userService          service.UserService
+	spaceService         service.SpaceService
+	chatService          service.ChatService
+	eventsHub            *apihandler.EventsHub
+	voiceService         service.VoiceService
+	voicePresenceService service.VoicePresenceService
+	janusService         service.JanusService
+	authService          authservice.Service
 }
 
 func newServiceProvider() *serviceProvider {
@@ -154,6 +156,18 @@ func (s *serviceProvider) VoiceService(ctx context.Context) service.VoiceService
 		s.voiceService = voiceservice.New(s.RedisClient(ctx), s.Config().VoicePresenceTTLSeconds())
 	}
 	return s.voiceService
+}
+
+func (s *serviceProvider) VoicePresenceService(ctx context.Context) service.VoicePresenceService {
+	if s.voicePresenceService == nil {
+		s.voicePresenceService = voicepresenceservice.New(
+			s.SpaceService(ctx),
+			s.UserService(ctx),
+			s.VoiceService(ctx),
+			apihandler.NewVoiceEventPublisher(s.EventsHub()),
+		)
+	}
+	return s.voicePresenceService
 }
 
 func (s *serviceProvider) JanusService(_ context.Context) service.JanusService {

@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	api "zerizeha/internal/api"
 	"zerizeha/internal/dto"
@@ -34,6 +35,7 @@ func (h *Handler) buildVoicePresenceSnapshot(ctx context.Context, spaceID string
 	}
 
 	result := make(map[string][]api.VoiceMember)
+	revisions := make(map[string]int64)
 	for _, ch := range channels {
 		if ch.ChannelType != "voice" {
 			continue
@@ -44,11 +46,13 @@ func (h *Handler) buildVoicePresenceSnapshot(ctx context.Context, spaceID string
 			return nil, err
 		}
 		result[ch.ID] = members
+		revisions[ch.ID] = nextVoicePresenceRevision()
 	}
 
 	return json.Marshal(map[string]any{
 		"space_id":                    spaceID,
 		"voice_members_by_channel_id": result,
+		"channel_revisions_by_id":     revisions,
 	})
 }
 
@@ -79,6 +83,7 @@ func (h *Handler) buildVoiceChannelMembersPayload(ctx context.Context, spaceID s
 		"space_id":   spaceID,
 		"channel_id": channelID,
 		"members":    members,
+		"revision":   nextVoicePresenceRevision(),
 	})
 }
 
@@ -135,4 +140,8 @@ func uniqueSpaceMemberUserIDs(members []dto.SpaceMemberWithUser) []string {
 		userIDs = append(userIDs, member.UserID)
 	}
 	return userIDs
+}
+
+func nextVoicePresenceRevision() int64 {
+	return time.Now().UnixMicro()
 }

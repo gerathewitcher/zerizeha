@@ -50,6 +50,9 @@ Payload:
 ```json
 {
   "space_id": "space-uuid",
+  "channel_revisions_by_id": {
+    "channel-uuid": 1741940000000000
+  },
   "voice_members_by_channel_id": {
     "channel-uuid": [
       {
@@ -68,6 +71,7 @@ Notes:
 
 - only `voice` channels are included
 - empty voice channels are represented as an empty array when present in the snapshot build result
+- `channel_revisions_by_id` is a monotonic per-channel revision map clients should use to ignore stale snapshots
 
 ### `voice.channel_members`
 
@@ -79,6 +83,7 @@ Payload:
 {
   "space_id": "space-uuid",
   "channel_id": "channel-uuid",
+  "revision": 1741940000000001,
   "members": [
     {
       "id": "user-uuid",

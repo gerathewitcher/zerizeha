@@ -16,12 +16,19 @@ type serv struct {
 	ttl   time.Duration
 }
 
-func New(redisClient *redis.Client, ttlSeconds int) service.VoiceService {
+// New creates a voice presence service backed by Redis.
+func New(
+	redisClient *redis.Client,
+	ttlSeconds int,
+) service.VoiceService {
 	ttl := 45 * time.Second
 	if ttlSeconds > 0 {
 		ttl = time.Duration(ttlSeconds) * time.Second
 	}
-	return &serv{redis: redisClient, ttl: ttl}
+	return &serv{
+		redis: redisClient,
+		ttl:   ttl,
+	}
 }
 
 func (s *serv) Join(ctx context.Context, userID string, channelID string) error {
@@ -94,19 +101,31 @@ func (s *serv) Heartbeat(ctx context.Context, userID string) error {
 }
 
 func (s *serv) ListMemberIDs(ctx context.Context, channelID string) ([]string, error) {
+	active, _, err := s.collectActiveMemberIDs(ctx, channelID)
+	return active, err
+}
+
+// CleanupStaleMembers removes users whose presence keys no longer point to the
+// provided channel from the channel members index.
+func (s *serv) CleanupStaleMembers(ctx context.Context, channelID string) (bool, error) {
+	_, cleaned, err := s.collectActiveMemberIDs(ctx, channelID)
+	return cleaned, err
+}
+
+func (s *serv) collectActiveMemberIDs(ctx context.Context, channelID string) ([]string, bool, error) {
 	if channelID == "" {
-		return nil, fmt.Errorf("channelID is required")
+		return nil, false, fmt.Errorf("channelID is required")
 	}
 
 	key := voiceChannelMembersKey(channelID)
 
 	ids, err := s.redis.ZRange(ctx, key, 0, -1).Result()
 	if err != nil && err != redis.Nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	if len(ids) == 0 {
-		return ids, nil
+		return ids, false, nil
 	}
 
 	// Cleanup: drop stale members by verifying they still "point" to this channel.
@@ -118,11 +137,11 @@ func (s *serv) ListMemberIDs(ctx context.Context, channelID string) ([]string, e
 
 	values, err := s.redis.MGet(ctx, userKeys...).Result()
 	if err != nil && err != redis.Nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	active := make([]string, 0, len(ids))
-	var stale []interface{}
+	var stale []any
 	var staleStateKeys []string
 	for idx, userID := range ids {
 		if idx >= len(values) {
@@ -148,7 +167,7 @@ func (s *serv) ListMemberIDs(ctx context.Context, channelID string) ([]string, e
 		_ = s.redis.Del(ctx, staleStateKeys...).Err()
 	}
 
-	return active, nil
+	return active, len(stale) > 0, nil
 }
 
 func (s *serv) GetUserChannelID(ctx context.Context, userID string) (string, error) {

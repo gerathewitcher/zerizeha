@@ -34,6 +34,10 @@ type chatEventPublisher struct {
 	hub *EventsHub
 }
 
+type voiceEventPublisher struct {
+	hub *EventsHub
+}
+
 // NewEventsHub creates a user-scoped in-memory hub for product events.
 func NewEventsHub() *EventsHub {
 	h := &EventsHub{
@@ -49,6 +53,11 @@ func NewEventsHub() *EventsHub {
 // NewChatEventPublisher creates a websocket-backed chat event publisher.
 func NewChatEventPublisher(hub *EventsHub) service.ChatEventPublisher {
 	return &chatEventPublisher{hub: hub}
+}
+
+// NewVoiceEventPublisher creates a websocket-backed voice event publisher.
+func NewVoiceEventPublisher(hub *EventsHub) service.VoiceEventPublisher {
+	return &voiceEventPublisher{hub: hub}
 }
 
 func (h *EventsHub) loop() {
@@ -119,6 +128,19 @@ func (p *chatEventPublisher) PublishChannelCompacted(recipientUserIDs []string, 
 
 	p.hub.SendToUsers(recipientUserIDs, wsEnvelope{
 		Type:    "chat.channel_compacted",
+		Payload: payload,
+	})
+	return nil
+}
+
+func (p *voiceEventPublisher) PublishChannelMembers(recipientUserIDs []string, event dto.VoiceChannelMembersEvent) error {
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+
+	p.hub.SendToUsers(recipientUserIDs, wsEnvelope{
+		Type:    "voice.channel_members",
 		Payload: payload,
 	})
 	return nil

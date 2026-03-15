@@ -44,6 +44,7 @@ func (a *App) initDeps(ctx context.Context) error {
 		a.initChatCleanup,
 		a.initFiber,
 		a.InitHandlers,
+		a.initVoicePresenceCleanup,
 	}
 
 	for _, f := range inits {
@@ -196,6 +197,45 @@ func (a *App) InitHandlers(ctx context.Context) error {
 	)
 	api.RegisterHandlers(a.fiberApp, handler)
 	a.fiberApp.Post("/api/voice/state", handler.UpdateVoiceState)
+	return nil
+}
+
+func (a *App) initVoicePresenceCleanup(_ context.Context) error {
+	ttlSeconds := a.serviceProvider.Config().VoicePresenceTTLSeconds()
+	if ttlSeconds <= 0 {
+		return nil
+	}
+
+	interval := max(min(time.Duration(ttlSeconds/3)*time.Second, 10*time.Second), 5*time.Second)
+
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				if err := a.serviceProvider.VoicePresenceService(context.Background()).CleanupVoicePresence(context.Background()); err != nil {
+					logger.Error("voice presence cleanup failed",
+						slog.Int("ttl_seconds", ttlSeconds),
+						slog.String("err", err.Error()),
+					)
+				}
+			}
+		}
+	}()
+
+	closer.Add(func() error {
+		close(done)
+		return nil
+	})
+
+	logger.Info("voice presence cleanup job started",
+		slog.Int("ttl_seconds", ttlSeconds),
+		slog.Duration("interval", interval),
+	)
 	return nil
 }
 

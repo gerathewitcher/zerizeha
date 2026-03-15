@@ -6,6 +6,7 @@ import (
 	"zerizeha/internal/dto"
 )
 
+// UserService manages user lifecycle, lookup, search, and admin synchronization.
 type UserService interface {
 	CreateUser(user dto.UserToCreate) (userID string, err error)
 	GetUserByID(id string) (dto.User, error)
@@ -18,6 +19,7 @@ type UserService interface {
 	SyncAdminsByEmails(emails []string) error
 }
 
+// SpaceService manages spaces, channels, and space membership relations.
 type SpaceService interface {
 	CreateSpace(space dto.SpaceToCreate) (spaceID string, err error)
 	ListSpaces() ([]dto.Space, error)
@@ -41,6 +43,7 @@ type SpaceService interface {
 	ListSpaceMembers(spaceID string) ([]dto.SpaceMemberWithUser, error)
 }
 
+// ChatService manages channel message writes, reads, and retention cleanup.
 type ChatService interface {
 	CreateChannelMessage(message dto.ChannelMessageToCreate) (messageID string, err error)
 	GetChannelMessageByID(id string) (dto.ChannelMessage, error)
@@ -48,21 +51,36 @@ type ChatService interface {
 	CleanupExpiredMessages(ctx context.Context) error
 }
 
+// ChatEventPublisher delivers chat-related realtime events to connected clients.
 type ChatEventPublisher interface {
 	PublishChannelMessageCreated(recipientUserIDs []string, event dto.ChannelMessageCreatedEvent) error
 	PublishChannelCompacted(recipientUserIDs []string, event dto.ChannelCompactedEvent) error
 }
 
+// VoiceEventPublisher delivers voice presence updates to connected clients.
+type VoiceEventPublisher interface {
+	PublishChannelMembers(recipientUserIDs []string, event dto.VoiceChannelMembersEvent) error
+}
+
+// VoiceService manages low-level voice presence state stored in Redis.
 type VoiceService interface {
 	Join(ctx context.Context, userID string, channelID string) error
 	Leave(ctx context.Context, userID string) error
 	Heartbeat(ctx context.Context, userID string) error
+	CleanupStaleMembers(ctx context.Context, channelID string) (bool, error)
 	ListMemberIDs(ctx context.Context, channelID string) ([]string, error)
 	GetUserChannelID(ctx context.Context, userID string) (string, error)
 	SetUserState(ctx context.Context, userID string, state VoiceState) error
 	GetUserStates(ctx context.Context, userIDs []string) (map[string]VoiceState, error)
 }
 
+// VoicePresenceService orchestrates background voice presence cleanup across
+// spaces and publishes refreshed channel member snapshots when presence changes.
+type VoicePresenceService interface {
+	CleanupVoicePresence(ctx context.Context) error
+}
+
+// JanusService wraps Janus session, handle, room, and signaling operations.
 type JanusService interface {
 	CreateSession(ctx context.Context) (sessionID int64, err error)
 	KeepAlive(ctx context.Context, sessionID int64) error
