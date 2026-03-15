@@ -1,3 +1,5 @@
+import { redirectToLogin, tryRefreshSession } from "@/lib/api/auth-recovery";
+
 /* eslint-disable @typescript-eslint/no-empty-object-type */
 export type ZerizehaFetcherExtraProps = {
   /**
@@ -124,13 +126,14 @@ export async function zerizehaFetch<
       },
     );
     if (!response.ok) {
+      let refreshed = false;
       if (
         response.status === 401 &&
         retryOnUnauthorized &&
         typeof window !== "undefined" &&
         !url.startsWith("/api/auth/refresh")
       ) {
-        const refreshed = await tryRefreshSession({
+        refreshed = await tryRefreshSession({
           baseUrl,
           credentials,
           fetcher,
@@ -164,6 +167,16 @@ export async function zerizehaFetch<
           >);
         }
       }
+
+      if (
+        response.status === 401 &&
+        !refreshed &&
+        typeof window !== "undefined" &&
+        !url.startsWith("/api/auth/refresh")
+      ) {
+        redirectToLogin();
+      }
+
       try {
         const payload = await response.json();
         error = { status: response.status, payload };
@@ -192,37 +205,6 @@ export async function zerizehaFetch<
     throw errorObject;
   }
   throw error;
-}
-
-async function tryRefreshSession({
-  baseUrl,
-  credentials,
-  fetcher,
-}: {
-  baseUrl?: string;
-  credentials: RequestCredentials;
-  fetcher: typeof fetch;
-}): Promise<boolean> {
-  try {
-    const res = await fetcher(`${resolveBaseUrl(baseUrl)}/api/auth/refresh`, {
-      method: "POST",
-      credentials,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    if (!res.ok) return false;
-    const contentType = res.headers.get("content-type") ?? "";
-    if (contentType.includes("json")) {
-      const payload = (await res.json()) as {
-        access_token?: string;
-        refresh_token?: string;
-      };
-      void payload;
-    }
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 const resolveUrl = (

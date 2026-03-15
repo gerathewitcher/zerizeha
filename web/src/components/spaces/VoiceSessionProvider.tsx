@@ -10,10 +10,13 @@ import {
   useState,
 } from "react";
 import VoiceWebRTC from "@/components/spaces/VoiceWebRTC";
+import { recoverSessionOrRedirect } from "@/lib/api/auth-recovery";
+import { getHttpStatus } from "@/lib/api/errors";
 import { buildWebSocketUrl } from "@/lib/api/ws";
 import {
   joinVoiceChannelById,
   leaveVoiceChannel,
+  sendVoiceHeartbeat,
   updateVoiceState,
 } from "@/lib/api/voice";
 import { useMe } from "@/lib/me";
@@ -231,6 +234,7 @@ export default function VoiceSessionProvider({
   const suppressMemberSoundsUntilRef = useRef(0);
   const lastUsernameRef = useRef<string | null>(null);
   const eventListenersRef = useRef<Set<EventsListener>>(new Set());
+  const voiceChannelRevisionByIdRef = useRef<Record<string, number>>({});
 
   const meSummary = useMemo(() => {
     if (meState.state.status !== "ready") return null;
@@ -810,6 +814,7 @@ export default function VoiceSessionProvider({
     let ws: WebSocket | null = null;
     let retryTimer: number | null = null;
     let retryMs = 500;
+    let recoveringAuth = false;
 
     const connect = () => {
       if (cancelled) return;
@@ -830,25 +835,66 @@ export default function VoiceSessionProvider({
         for (const listener of eventListenersRef.current) {
           listener(msg);
         }
+        if (msg?.type === "error") {
+          const payload = msg.payload as { message?: string } | undefined;
+          if (payload?.message === "unauthorized" && !recoveringAuth) {
+            recoveringAuth = true;
+            void recoverSessionOrRedirect().finally(() => {
+              recoveringAuth = false;
+            });
+          }
+          return;
+        }
         if (msg?.type === "voice.snapshot") {
-          const map = (
-            msg.payload as
-              | { voice_members_by_channel_id?: Record<string, VoiceMember[]> }
-              | undefined
-          )?.voice_members_by_channel_id;
+          const payload = msg.payload as
+            | {
+                voice_members_by_channel_id?: Record<string, VoiceMember[]>;
+                channel_revisions_by_id?: Record<string, number>;
+              }
+            | undefined;
+          const map = payload?.voice_members_by_channel_id;
+          const revisions = payload?.channel_revisions_by_id;
           if (map && typeof map === "object") {
-            setVoiceMembersByChannelId((prev) => ({ ...prev, ...map }));
+            setVoiceMembersByChannelId((prev) => {
+              let changed = false;
+              const next = { ...prev };
+
+              for (const [channelId, members] of Object.entries(map)) {
+                const revision = revisions?.[channelId] ?? 0;
+                const currentRevision =
+                  voiceChannelRevisionByIdRef.current[channelId] ?? 0;
+                if (revision < currentRevision) {
+                  continue;
+                }
+
+                voiceChannelRevisionByIdRef.current[channelId] = revision;
+                next[channelId] = members;
+                changed = true;
+              }
+
+              return changed ? next : prev;
+            });
           }
           return;
         }
         if (msg?.type === "voice.channel_members") {
           const payload = msg.payload as
-            | { channel_id?: string; members?: VoiceMember[] }
+            | { channel_id?: string; members?: VoiceMember[]; revision?: number }
             | undefined;
           const channelId = payload?.channel_id;
           const members = payload?.members;
+          const revision = payload?.revision ?? 0;
           if (!channelId || !Array.isArray(members)) return;
-          setVoiceMembersByChannelId((prev) => ({ ...prev, [channelId]: members }));
+          setVoiceMembersByChannelId((prev) => {
+            const currentRevision =
+              voiceChannelRevisionByIdRef.current[channelId] ?? 0;
+            if (revision < currentRevision) {
+              return prev;
+            }
+
+            voiceChannelRevisionByIdRef.current[channelId] = revision;
+            return { ...prev, [channelId]: members };
+          });
         }
       };
 
@@ -872,6 +918,26 @@ export default function VoiceSessionProvider({
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!activeVoiceChannelId || !meSummary?.id) return;
+
+    const sendHeartbeat = () => {
+      void sendVoiceHeartbeat().catch((err) => {
+        if (getHttpStatus(err) === 401) {
+          return;
+        }
+        console.error("Failed to send voice heartbeat", err);
+      });
+    };
+
+    sendHeartbeat();
+    const intervalId = window.setInterval(sendHeartbeat, 15000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [activeVoiceChannelId, meSummary?.id]);
 
   const contextValue = useMemo<VoiceSessionContextValue>(
     () => ({
