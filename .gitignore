@@ -87,3 +87,6 @@ sketch
 bin/
 **/bin/
 .gocache/
+.gitnexus
+.claude
+CLAUDE.md
