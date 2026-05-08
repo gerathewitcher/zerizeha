@@ -3,3 +3,7 @@ nat: {
 	# Replace with your server public IP.
 	nat_1_1_mapping = "45.83.143.129"
 }
+
+media: {
+	rtp_port_range = "10000-10200"
+}
