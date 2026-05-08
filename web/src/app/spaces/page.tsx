@@ -6,6 +6,7 @@ import SpaceRail from "@/components/spaces/SpaceRail";
 import { useVoiceSession } from "@/components/spaces/VoiceSessionProvider";
 import { fetchSpaces } from "@/lib/api/spaces";
 import { logout } from "@/lib/api/auth";
+import DesktopDownloadButton from "@/components/ui/DesktopDownloadButton";
 import ErrorState from "@/components/ui/ErrorState";
 import { getHttpStatus } from "@/lib/api/errors";
 import { useMe } from "@/lib/me";
@@ -155,6 +156,11 @@ export default function SpacesPage() {
             </div>
           ) : null}
 
+          <DesktopDownloadButton
+            wrapperClassName="relative mt-4 w-full"
+            className="flex w-full items-center gap-3 rounded-2xl border border-(--border) bg-(--panel) px-4 py-3 text-left text-sm font-medium text-(--text) shadow-(--shadow-1) transition hover:border-(--accent) hover:text-(--accent)"
+          />
+
           <div className="mt-6">
             <p className="text-xs uppercase tracking-[0.2em] text-(--subtle)">
               Пространства
@@ -201,7 +207,7 @@ export default function SpacesPage() {
           loggingOut={loggingOut}
           activeVoiceSpaceId={voiceSession.activeVoiceSpaceId}
         />
-        <main className="flex min-w-0 flex-1 items-center justify-center px-6">
+        <main className="flex min-w-0 flex-1 items-start justify-center px-6 pt-20">
           {state.status === "loading" ? (
             <p className="text-sm text-(--muted)">Загрузка…</p>
           ) : state.status === "error" ? (
@@ -212,6 +218,26 @@ export default function SpacesPage() {
             />
           ) : (
             <div className="w-full max-w-xl space-y-10 text-center">
+              {state.spaces.length ? (
+                <div className="space-y-3">
+                  <h1 className="font-(--font-display) text-4xl tracking-tight">
+                    Выбери пространство
+                  </h1>
+                  <p className="text-sm text-(--muted)">
+                    Нажми на пространство слева, чтобы открыть каналы.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <h1 className="font-(--font-display) text-4xl tracking-tight">
+                    Пока пусто
+                  </h1>
+                  <p className="text-sm text-(--muted)">
+                    Создай первое пространство в левом меню.
+                  </p>
+                </div>
+              )}
+
               {meState.state.status === "loading"
                 ? profileSkeleton
                 : profile
@@ -268,29 +294,14 @@ export default function SpacesPage() {
                       </section>
                     )
                   : null}
-
-              {state.spaces.length ? (
-                <div className="space-y-3">
-                  <h1 className="font-(--font-display) text-4xl tracking-tight">
-                    Выбери пространство
-                  </h1>
-                  <p className="text-sm text-(--muted)">
-                    Нажми на пространство слева, чтобы открыть каналы.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <h1 className="font-(--font-display) text-4xl tracking-tight">
-                    Пока пусто
-                  </h1>
-                  <p className="text-sm text-(--muted)">
-                    Создай первое пространство в левом меню.
-                  </p>
-                </div>
-              )}
             </div>
           )}
         </main>
+        <DesktopDownloadButton
+          menuPlacement="top"
+          wrapperClassName="fixed bottom-6 right-6 z-40"
+          className="flex w-fit items-center gap-3 rounded-xl border border-(--border) bg-(--panel) px-4 py-3 text-left text-sm font-medium text-(--text) shadow-(--shadow-2) transition hover:border-(--accent) hover:text-(--accent)"
+        />
       </div>
     </div>
   );

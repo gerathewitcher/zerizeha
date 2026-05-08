@@ -8,6 +8,7 @@ import {
   loginWithYandex,
 } from "@/lib/api/auth";
 import { health } from "@/lib/api/generated/zerizeha-components";
+import DesktopDownloadButton from "@/components/ui/DesktopDownloadButton";
 import ErrorState from "@/components/ui/ErrorState";
 
 export default function LoginPageClient() {
@@ -70,12 +71,11 @@ export default function LoginPageClient() {
                 Голосовые комнаты
               </span>
             </div>
-            <div className="mt-10 text-sm text-(--muted)">
-              Нет доступа?
-              <button className="ml-2 text-(--accent) transition hover:text-(--accent-2)">
-                Попросить инвайт
-              </button>
-            </div>
+            <DesktopDownloadButton
+              menuPlacement="right"
+              wrapperClassName="relative mt-10 w-fit"
+              className="flex w-fit items-center gap-3 rounded-xl border border-(--border) bg-(--panel) px-4 py-3 text-left text-sm font-medium text-(--text) shadow-(--shadow-1) transition hover:border-(--accent) hover:text-(--accent)"
+            />
           </section>
 
           <section className="mt-10 flex items-center lg:mt-0">
