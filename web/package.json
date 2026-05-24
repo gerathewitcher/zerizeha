@@ -1,8 +1,8 @@
 {
   "name": "zerizeha",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "main": "electron/main.js",
-  "homepage": "https://zzeha.ru:8443",
+  "homepage": "https://zzeha.ru",
   "private": true,
     "author": {
     "name": "Aytek Gerandokov",
@@ -16,7 +16,8 @@
     "generate:api": "openapi-codegen gen api",
     "electron:dev": "concurrently -k \"next dev\" \"wait-on http://localhost:3000 && electron electron/main.js\"",
     "electron:run": "electron electron/main.js",
-    "electron:build": "npm run build && electron-builder --config electron-builder.json"
+    "electron:write-config": "node scripts/write-electron-build-config.js",
+    "electron:build": "npm run build && npm run electron:write-config && electron-builder --config electron-builder.json"
   },
   "dependencies": {
     "@swc/helpers": "^0.5.18",

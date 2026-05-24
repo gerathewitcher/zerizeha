@@ -16,6 +16,7 @@ const fs = require("fs");
 const { uIOhook, UiohookKey } = require("uiohook-napi");
 
 const isDev = !app.isPackaged;
+const buildConfig = readBuildConfig(path.join(__dirname, "build-config.json"));
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -30,9 +31,9 @@ if (!gotLock) {
 }
 const startUrl = process.env.ELECTRON_START_URL || (isDev
   ? "http://localhost:3000"
-  : "https://zzeha.ru:8443");
+  : buildConfig.startUrl || "https://zzeha.ru");
 const apiBase = normalizeBaseUrl(
-  process.env.NEXT_PUBLIC_API_BASE,
+  process.env.NEXT_PUBLIC_API_BASE || (!isDev ? buildConfig.apiBase : ""),
   isDev ? "http://localhost:8080" : startUrl,
 );
 const googleDesktopRedirect = process.env.GOOGLE_DESKTOP_REDIRECT || "http://127.0.0.1:5555/callback";
@@ -55,6 +56,18 @@ let pttEnabled = false;
 let pttActive = false;
 let pttBinding = { type: "key", keycode: UiohookKey.V };
 let desktopOAuthServer;
+
+function readBuildConfig(configPath) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (error) {
+    if (error && error.code !== "ENOENT") {
+      console.warn("Failed to read Electron build config:", error);
+    }
+    return {};
+  }
+}
 
 function normalizeBaseUrl(value, fallback) {
   const raw = String(value || fallback || "").trim();

@@ -42,6 +42,8 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          ELECTRON_START_URL: https://zzeha.ru
+          NEXT_PUBLIC_API_BASE: https://zzeha.ru
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             if [ "${{ inputs.publish }}" = "true" ]; then

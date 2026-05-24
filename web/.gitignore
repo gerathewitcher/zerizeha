@@ -19,6 +19,7 @@
 
 # production
 /build
+/electron/build-config.json
 
 # misc
 .DS_Store
