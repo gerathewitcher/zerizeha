@@ -9,7 +9,6 @@ const {
   Menu,
   nativeImage,
 } = require("electron");
-const { autoUpdater } = require("electron-updater");
 const http = require("http");
 const path = require("path");
 const fs = require("fs");
@@ -394,13 +393,6 @@ app.whenReady().then(async () => {
   createWindow();
   createTray();
   startDesktopOAuthServer();
-  if (!isDev) {
-    try {
-      autoUpdater.checkForUpdatesAndNotify();
-    } catch {
-      // ignore
-    }
-  }
 });
 
 ipcMain.handle("ptt:set-enabled", (_event, enabled) => {
