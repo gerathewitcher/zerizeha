@@ -17,6 +17,13 @@ type UserRepository interface {
 	SyncAdminsByEmails(emails []string) error
 }
 
+type AuthCredentialRepository interface {
+	UpsertPassword(userID string, passwordHash string) error
+	GetPasswordHashByEmail(email string) (user dto.User, passwordHash string, err error)
+	CreateEmailToken(userID string, tokenHash string, purpose string, expiresAt time.Time) error
+	ConsumeEmailToken(tokenHash string, purpose string) (dto.User, error)
+}
+
 type SpaceRepository interface {
 	CreateSpace(space dto.SpaceToCreate) (spaceID string, err error)
 	ListSpaces() ([]dto.Space, error)

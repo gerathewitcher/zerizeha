@@ -12,6 +12,7 @@ const {
 const http = require("http");
 const path = require("path");
 const fs = require("fs");
+const { autoUpdater } = require("electron-updater");
 const { uIOhook, UiohookKey } = require("uiohook-napi");
 
 const isDev = !app.isPackaged;
@@ -55,6 +56,16 @@ let pttEnabled = false;
 let pttActive = false;
 let pttBinding = { type: "key", keycode: UiohookKey.V };
 let desktopOAuthServer;
+
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
+
+function checkForUpdates() {
+  if (isDev) return;
+  autoUpdater.checkForUpdatesAndNotify().catch((error) => {
+    console.warn("Failed to check for updates:", error);
+  });
+}
 
 function readBuildConfig(configPath) {
   try {
@@ -393,6 +404,7 @@ app.whenReady().then(async () => {
   createWindow();
   createTray();
   startDesktopOAuthServer();
+  checkForUpdates();
 });
 
 ipcMain.handle("ptt:set-enabled", (_event, enabled) => {

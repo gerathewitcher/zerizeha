@@ -44,12 +44,20 @@ const (
 	voicePresenceTTLSecEnvName   = "VOICE_PRESENCE_TTL_SEC"
 	chatMessageCleanupTTLEnvName = "CHAT_MESSAGE_CLEANUP_TTL"
 	janusWSURLEnvName            = "JANUS_WS_URL"
+	smtpHostEnvName              = "SMTP_HOST"
+	smtpPortEnvName              = "SMTP_PORT"
+	smtpUsernameEnvName          = "SMTP_USERNAME"
+	smtpPasswordEnvName          = "SMTP_PASSWORD"
+	smtpFromEmailEnvName         = "SMTP_FROM_EMAIL"
+	smtpFromNameEnvName          = "SMTP_FROM_NAME"
+	smtpUseTLSEnvName            = "SMTP_USE_TLS"
 )
 
 type Config interface {
 	ServerAdress() string
 	PGConfig() PgConfig
 	OAuthConfig() OAuthConfig
+	EmailConfig() EmailConfig
 	AdminEmails() []string
 	RedisConfig() RedisConfig
 	VoicePresenceTTLSeconds() int
@@ -85,9 +93,30 @@ type config struct {
 	pgconfig PgConfig
 	oauth    OAuthConfig
 	admins   []string
+	email    EmailConfig
 	voiceTTL int
 	chatTTL  time.Duration
 	janusWS  string
+}
+
+// EmailConfig contains SMTP delivery settings for transactional emails.
+type EmailConfig struct {
+	Host      string
+	Port      int
+	Username  string
+	Password  string
+	FromEmail string
+	FromName  string
+	UseTLS    bool
+}
+
+// Enabled reports whether the SMTP configuration has enough data to send mail.
+func (cfg EmailConfig) Enabled() bool {
+	return strings.TrimSpace(cfg.Host) != "" &&
+		cfg.Port > 0 &&
+		strings.TrimSpace(cfg.Username) != "" &&
+		strings.TrimSpace(cfg.Password) != "" &&
+		strings.TrimSpace(cfg.FromEmail) != ""
 }
 
 type OAuthConfig struct {
@@ -153,6 +182,7 @@ func NewConfig() (Config, error) {
 	}
 
 	admins := parseAdminEmails(os.Getenv(adminEmailsEnvName))
+	email := readEmailConfig()
 
 	voiceTTL := 45
 	if value := os.Getenv(voicePresenceTTLSecEnvName); value != "" {
@@ -194,6 +224,7 @@ func NewConfig() (Config, error) {
 			AccessTokenTTLMin:     accessTokenTTLMin,
 			RefreshTokenTTLHours:  refreshTokenTTLHours,
 		},
+		email:    email,
 		admins:   admins,
 		voiceTTL: voiceTTL,
 		chatTTL:  chatTTL,
@@ -218,8 +249,54 @@ func (c *config) OAuthConfig() OAuthConfig {
 	return c.oauth
 }
 
+func (c *config) EmailConfig() EmailConfig {
+	return c.email
+}
+
 func (c *config) AdminEmails() []string {
 	return append([]string(nil), c.admins...)
+}
+
+func readEmailConfig() EmailConfig {
+	port := 465
+	if value := strings.TrimSpace(os.Getenv(smtpPortEnvName)); value != "" {
+		if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 {
+			port = parsed
+		}
+	}
+
+	useTLS := true
+	if value := strings.TrimSpace(os.Getenv(smtpUseTLSEnvName)); value != "" {
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			useTLS = parsed
+		}
+	}
+
+	username := strings.TrimSpace(os.Getenv(smtpUsernameEnvName))
+	fromEmail := strings.TrimSpace(os.Getenv(smtpFromEmailEnvName))
+	if fromEmail == "" {
+		fromEmail = username
+	}
+
+	fromName := strings.TrimSpace(os.Getenv(smtpFromNameEnvName))
+	if fromName == "" {
+		fromName = "Zerizeha"
+	}
+
+	host := strings.TrimSpace(os.Getenv(smtpHostEnvName))
+	if host == "" {
+		host = "smtp.yandex.ru"
+	}
+
+	return EmailConfig{
+		Host:      host,
+		Port:      port,
+		Username:  username,
+		Password:  os.Getenv(smtpPasswordEnvName),
+		FromEmail: fromEmail,
+		FromName:  fromName,
+		UseTLS:    useTLS,
+	}
 }
 
 func (c *config) VoicePresenceTTLSeconds() int {

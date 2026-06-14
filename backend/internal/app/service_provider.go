@@ -6,6 +6,7 @@ import (
 	apihandler "zerizeha/internal/api/handler"
 	"zerizeha/internal/config"
 	"zerizeha/internal/repository"
+	pgAuthRepo "zerizeha/internal/repository/postgres/auth"
 	pgChatRepo "zerizeha/internal/repository/postgres/chat"
 	pgSpaceRepo "zerizeha/internal/repository/postgres/space"
 	pgUserRepo "zerizeha/internal/repository/postgres/user"
@@ -13,6 +14,7 @@ import (
 	authservice "zerizeha/internal/service/auth"
 	chatservice "zerizeha/internal/service/chat"
 	janusservice "zerizeha/internal/service/janus"
+	mailservice "zerizeha/internal/service/mail"
 	spaceservice "zerizeha/internal/service/space"
 	userservice "zerizeha/internal/service/user"
 	voiceservice "zerizeha/internal/service/voice"
@@ -29,6 +31,7 @@ type serviceProvider struct {
 	config               config.Config
 	dbClient             db.Client
 	redisClient          *redis.Client
+	authCredentialRepo   repository.AuthCredentialRepository
 	userRepo             repository.UserRepository
 	spaceRepo            repository.SpaceRepository
 	chatRepo             repository.ChatRepository
@@ -39,6 +42,7 @@ type serviceProvider struct {
 	voiceService         service.VoiceService
 	voicePresenceService service.VoicePresenceService
 	janusService         service.JanusService
+	emailService         mailservice.Service
 	authService          authservice.Service
 }
 
@@ -97,6 +101,13 @@ func (s *serviceProvider) UserRepository(ctx context.Context) repository.UserRep
 	return s.userRepo
 }
 
+func (s *serviceProvider) AuthCredentialRepository(ctx context.Context) repository.AuthCredentialRepository {
+	if s.authCredentialRepo == nil {
+		s.authCredentialRepo = pgAuthRepo.NewPostgresAuthCredentialRepo(s.DBClient(ctx))
+	}
+	return s.authCredentialRepo
+}
+
 func (s *serviceProvider) SpaceRepository(ctx context.Context) repository.SpaceRepository {
 	if s.spaceRepo == nil {
 		s.spaceRepo = pgSpaceRepo.NewPostgresSpaceRepo(s.DBClient(ctx))
@@ -146,9 +157,22 @@ func (s *serviceProvider) EventsHub() *apihandler.EventsHub {
 
 func (s *serviceProvider) AuthService(ctx context.Context) authservice.Service {
 	if s.authService == nil {
-		s.authService = authservice.NewService(s.UserService(ctx), s.Config())
+		s.authService = authservice.NewService(
+			s.UserService(ctx),
+			s.AuthCredentialRepository(ctx),
+			s.EmailService(),
+			s.Config(),
+		)
 	}
 	return s.authService
+}
+
+// EmailService returns the SMTP-backed transactional email sender.
+func (s *serviceProvider) EmailService() mailservice.Service {
+	if s.emailService == nil {
+		s.emailService = mailservice.NewService(s.Config().EmailConfig())
+	}
+	return s.emailService
 }
 
 func (s *serviceProvider) VoiceService(ctx context.Context) service.VoiceService {

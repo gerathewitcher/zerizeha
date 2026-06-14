@@ -1,13 +1,13 @@
 {
   "name": "zerizeha",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "main": "electron/main.js",
   "homepage": "https://zzeha.ru",
   "private": true,
-    "author": {
+  "author": {
     "name": "Aytek Gerandokov",
     "email": "gerandokov1337@gmail.com"
-},
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",

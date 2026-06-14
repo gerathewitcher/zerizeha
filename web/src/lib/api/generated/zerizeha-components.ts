@@ -136,7 +136,7 @@ export const googleCallback = (
   signal?: AbortSignal,
 ) =>
   zerizehaFetch<
-    Schemas.TokenResponse,
+    undefined,
     GoogleCallbackError,
     undefined,
     {},
@@ -283,6 +283,214 @@ export const refresh = (variables: RefreshVariables, signal?: AbortSignal) =>
     {},
     {}
   >({ url: "/api/auth/refresh", method: "post", ...variables, signal });
+
+export type PasswordLoginError = Fetcher.ErrorWrapper<
+  | {
+      status: 400;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type PasswordLoginVariables = {
+  body: Schemas.PasswordLoginRequest;
+} & ZerizehaFetcherExtraProps;
+
+export const passwordLogin = (
+  variables: PasswordLoginVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<
+    Schemas.TokenResponse,
+    PasswordLoginError,
+    Schemas.PasswordLoginRequest,
+    {},
+    {},
+    {}
+  >({ url: "/api/auth/password/login", method: "post", ...variables, signal });
+
+export type PasswordRegisterError = Fetcher.ErrorWrapper<
+  | {
+      status: 400;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 409;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type PasswordRegisterVariables = {
+  body: Schemas.PasswordRegisterRequest;
+} & ZerizehaFetcherExtraProps;
+
+export const passwordRegister = (
+  variables: PasswordRegisterVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<
+    Schemas.TokenResponse,
+    PasswordRegisterError,
+    Schemas.PasswordRegisterRequest,
+    {},
+    {},
+    {}
+  >({
+    url: "/api/auth/password/register",
+    method: "post",
+    ...variables,
+    signal,
+  });
+
+export type PasswordConfirmRegistrationError = Fetcher.ErrorWrapper<
+  | {
+      status: 400;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type PasswordConfirmRegistrationVariables = {
+  body: Schemas.PasswordRegistrationConfirmRequest;
+} & ZerizehaFetcherExtraProps;
+
+export const passwordConfirmRegistration = (
+  variables: PasswordConfirmRegistrationVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<
+    Schemas.TokenResponse,
+    PasswordConfirmRegistrationError,
+    Schemas.PasswordRegistrationConfirmRequest,
+    {},
+    {},
+    {}
+  >({
+    url: "/api/auth/password/confirm-registration",
+    method: "post",
+    ...variables,
+    signal,
+  });
+
+export type PasswordSetError = Fetcher.ErrorWrapper<
+  | {
+      status: 400;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type PasswordSetVariables = {
+  body: Schemas.PasswordSetRequest;
+} & ZerizehaFetcherExtraProps;
+
+export const passwordSet = (
+  variables: PasswordSetVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<
+    undefined,
+    PasswordSetError,
+    Schemas.PasswordSetRequest,
+    {},
+    {},
+    {}
+  >({ url: "/api/auth/password/set", method: "post", ...variables, signal });
+
+export type PasswordRequestSetupError = Fetcher.ErrorWrapper<
+  | {
+      status: 400;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type PasswordRequestSetupVariables = {
+  body: Schemas.PasswordSetupRequest;
+} & ZerizehaFetcherExtraProps;
+
+export const passwordRequestSetup = (
+  variables: PasswordRequestSetupVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<
+    undefined,
+    PasswordRequestSetupError,
+    Schemas.PasswordSetupRequest,
+    {},
+    {},
+    {}
+  >({
+    url: "/api/auth/password/request-setup",
+    method: "post",
+    ...variables,
+    signal,
+  });
+
+export type PasswordConfirmSetupError = Fetcher.ErrorWrapper<
+  | {
+      status: 400;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 401;
+      payload: Schemas.ErrorMap;
+    }
+  | {
+      status: 500;
+      payload: Schemas.ErrorMap;
+    }
+>;
+
+export type PasswordConfirmSetupVariables = {
+  body: Schemas.PasswordSetupConfirmRequest;
+} & ZerizehaFetcherExtraProps;
+
+export const passwordConfirmSetup = (
+  variables: PasswordConfirmSetupVariables,
+  signal?: AbortSignal,
+) =>
+  zerizehaFetch<
+    Schemas.TokenResponse,
+    PasswordConfirmSetupError,
+    Schemas.PasswordSetupConfirmRequest,
+    {},
+    {},
+    {}
+  >({
+    url: "/api/auth/password/confirm-setup",
+    method: "post",
+    ...variables,
+    signal,
+  });
 
 export type LogoutError = Fetcher.ErrorWrapper<undefined>;
 
@@ -1297,6 +1505,12 @@ export const operationsByTag = {
     yandexLogin,
     yandexCallback,
     refresh,
+    passwordLogin,
+    passwordRegister,
+    passwordConfirmRegistration,
+    passwordSet,
+    passwordRequestSetup,
+    passwordConfirmSetup,
     logout,
   },
   users: { getMe, updateMe, searchUsers },

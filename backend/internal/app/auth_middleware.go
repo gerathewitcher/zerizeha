@@ -67,7 +67,7 @@ func authMiddleware(cfg config.Config, userService service.UserService) fiber.Ha
 			return c.Status(http.StatusForbidden).JSON(api.ErrorMap{"error": "forbidden"})
 		}
 
-		if path != "/api/me" && !user.Confirmed {
+		if path != "/api/me" && path != "/api/auth/password/set" && !user.Confirmed {
 			logger.Info("not confirmed")
 			return c.Status(http.StatusForbidden).JSON(api.ErrorMap{"error": "user is not confirmed"})
 		}
@@ -84,7 +84,8 @@ func requiresAuth(path string) bool {
 		strings.HasPrefix(path, "/api/voice") ||
 		strings.HasPrefix(path, "/api/ws") ||
 		strings.HasPrefix(path, "/api/admin") ||
-		path == "/api/me"
+		path == "/api/me" ||
+		path == "/api/auth/password/set"
 }
 
 func bearerToken(c *fiber.Ctx) string {

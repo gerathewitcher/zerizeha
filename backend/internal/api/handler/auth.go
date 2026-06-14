@@ -2,12 +2,14 @@ package handler
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 
 	api "zerizeha/internal/api"
 	authservice "zerizeha/internal/service/auth"
+	"zerizeha/pkg/logger"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -105,6 +107,92 @@ func (h *Handler) Refresh(c *fiber.Ctx) error {
 	return h.handleAuthResponse(c, response, err, false)
 }
 
+func (h *Handler) PasswordLogin(c *fiber.Ctx) error {
+	var req api.PasswordLoginJSONRequestBody
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
+	}
+
+	response, err := h.authService.LoginWithPassword(c.UserContext(), string(req.Email), req.Password)
+	return h.handleAuthResponse(c, response, err, false)
+}
+
+func (h *Handler) PasswordRegister(c *fiber.Ctx) error {
+	var req api.PasswordRegisterJSONRequestBody
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
+	}
+
+	if err := h.authService.RegisterWithPassword(c.UserContext(), string(req.Email), req.Password); err != nil {
+		return h.handlePasswordError(c, err)
+	}
+	return c.SendStatus(http.StatusNoContent)
+}
+
+func (h *Handler) PasswordConfirmRegistration(c *fiber.Ctx) error {
+	var req api.PasswordConfirmRegistrationJSONRequestBody
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
+	}
+
+	response, err := h.authService.ConfirmRegistration(c.UserContext(), req.Token)
+	return h.handleAuthResponse(c, response, err, false)
+}
+
+func (h *Handler) PasswordSet(c *fiber.Ctx) error {
+	userID, ok := c.Locals(UserIDLocalKey).(string)
+	if !ok || userID == "" {
+		return c.Status(http.StatusUnauthorized).JSON(api.ErrorMap{"error": "unauthorized"})
+	}
+
+	var req api.PasswordSetJSONRequestBody
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
+	}
+
+	if err := h.authService.SetPassword(c.UserContext(), userID, req.Password); err != nil {
+		return h.handlePasswordError(c, err)
+	}
+	return c.SendStatus(http.StatusNoContent)
+}
+
+func (h *Handler) PasswordRequestSetup(c *fiber.Ctx) error {
+	var req api.PasswordRequestSetupJSONRequestBody
+	if err := c.BodyParser(&req); err != nil {
+		logger.Warn("password setup request: invalid request body",
+			slog.String("err", err.Error()),
+		)
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
+	}
+
+	email := strings.TrimSpace(string(req.Email))
+	logger.Info("password setup request: received",
+		slog.String("email", email),
+	)
+
+	if err := h.authService.RequestPasswordSetup(c.UserContext(), email); err != nil {
+		logger.Error("password setup request: failed",
+			slog.String("email", email),
+			slog.String("err", err.Error()),
+		)
+		return h.handlePasswordError(c, err)
+	}
+	logger.Info("password setup request: completed",
+		slog.String("email", email),
+	)
+	return c.SendStatus(http.StatusNoContent)
+}
+
+func (h *Handler) PasswordConfirmSetup(c *fiber.Ctx) error {
+	var req api.PasswordConfirmSetupJSONRequestBody
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "invalid request"})
+	}
+
+	response, err := h.authService.ConfirmPasswordSetup(c.UserContext(), req.Token, req.Password)
+	return h.handleAuthResponse(c, response, err, false)
+}
+
 func (h *Handler) Logout(c *fiber.Ctx) error {
 	h.clearAuthCookies(c)
 	return c.SendStatus(http.StatusNoContent)
@@ -135,9 +223,21 @@ func (h *Handler) handleAuthResponse(c *fiber.Ctx, response authservice.TokenRes
 		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
 	case errors.Is(err, authservice.ErrInvalidRefreshToken):
 		return c.Status(http.StatusUnauthorized).JSON(fiber.Map{"error": err.Error()})
+	case errors.Is(err, authservice.ErrInvalidCredentials):
+		return c.Status(http.StatusUnauthorized).JSON(fiber.Map{"error": err.Error()})
+	case errors.Is(err, authservice.ErrInvalidEmailToken):
+		return c.Status(http.StatusUnauthorized).JSON(fiber.Map{"error": err.Error()})
+	case errors.Is(err, authservice.ErrPasswordTooShort):
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": err.Error()})
+	case errors.Is(err, authservice.ErrEmailAlreadyExists):
+		return c.Status(http.StatusConflict).JSON(fiber.Map{"error": err.Error()})
 	default:
 		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "internal error"})
 	}
+}
+
+func (h *Handler) handlePasswordError(c *fiber.Ctx, err error) error {
+	return h.handleAuthResponse(c, authservice.TokenResponse{}, err, false)
 }
 
 func parseDomain(raw string) string {

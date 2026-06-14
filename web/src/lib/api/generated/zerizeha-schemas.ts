@@ -19,6 +19,54 @@ export type RefreshRequest = {
   refresh_token?: string;
 };
 
+export type PasswordLoginRequest = {
+  /**
+   * @format email
+   */
+  email: string;
+  /**
+   * @minLength 8
+   */
+  password: string;
+};
+
+export type PasswordRegisterRequest = {
+  /**
+   * @format email
+   */
+  email: string;
+  /**
+   * @minLength 8
+   */
+  password: string;
+};
+
+export type PasswordRegistrationConfirmRequest = {
+  token: string;
+};
+
+export type PasswordSetRequest = {
+  /**
+   * @minLength 8
+   */
+  password: string;
+};
+
+export type PasswordSetupRequest = {
+  /**
+   * @format email
+   */
+  email: string;
+};
+
+export type PasswordSetupConfirmRequest = {
+  token: string;
+  /**
+   * @minLength 8
+   */
+  password: string;
+};
+
 export type TokenResponse = {
   access_token?: string;
   refresh_token?: string;

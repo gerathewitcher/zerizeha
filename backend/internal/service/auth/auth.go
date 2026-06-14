@@ -2,18 +2,27 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"zerizeha/internal/config"
 	"zerizeha/internal/dto"
+	"zerizeha/internal/repository"
 	"zerizeha/internal/service"
+	mailservice "zerizeha/internal/service/mail"
+	"zerizeha/pkg/logger"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
+	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/github"
 	"golang.org/x/oauth2/google"
@@ -25,6 +34,10 @@ var (
 	ErrUserInfoFetch       = errors.New("failed to fetch user info")
 	ErrUserInfoDecode      = errors.New("failed to decode user info")
 	ErrInvalidRefreshToken = errors.New("invalid refresh token")
+	ErrInvalidCredentials  = errors.New("invalid email or password")
+	ErrInvalidEmailToken   = errors.New("invalid or expired email token")
+	ErrPasswordTooShort    = errors.New("password must be at least 8 characters")
+	ErrEmailAlreadyExists  = errors.New("email is already registered")
 )
 
 type Service interface {
@@ -35,10 +48,18 @@ type Service interface {
 	HandleGithubCallback(ctx context.Context, code string) (TokenResponse, error)
 	HandleYandexCallback(ctx context.Context, code string) (TokenResponse, error)
 	Refresh(ctx context.Context, refreshToken string) (TokenResponse, error)
+	RegisterWithPassword(ctx context.Context, email string, password string) error
+	ConfirmRegistration(ctx context.Context, token string) (TokenResponse, error)
+	LoginWithPassword(ctx context.Context, email string, password string) (TokenResponse, error)
+	SetPassword(ctx context.Context, userID string, password string) error
+	RequestPasswordSetup(ctx context.Context, email string) error
+	ConfirmPasswordSetup(ctx context.Context, token string, password string) (TokenResponse, error)
 }
 
 type serviceImpl struct {
 	userService service.UserService
+	authRepo    repository.AuthCredentialRepository
+	email       mailservice.Service
 	cfg         config.Config
 }
 
@@ -81,8 +102,8 @@ type yandexUserInfo struct {
 	Emails       []string `json:"emails"`
 }
 
-func NewService(userService service.UserService, cfg config.Config) Service {
-	return &serviceImpl{userService: userService, cfg: cfg}
+func NewService(userService service.UserService, authRepo repository.AuthCredentialRepository, email mailservice.Service, cfg config.Config) Service {
+	return &serviceImpl{userService: userService, authRepo: authRepo, email: email, cfg: cfg}
 }
 
 func (s *serviceImpl) GoogleAuthURL(state string, desktop bool) string {
@@ -227,6 +248,193 @@ func (s *serviceImpl) Refresh(ctx context.Context, refreshToken string) (TokenRe
 
 	response.User = nil
 	return response, nil
+}
+
+func (s *serviceImpl) LoginWithPassword(ctx context.Context, email string, password string) (TokenResponse, error) {
+	email = normalizeEmail(email)
+	if email == "" || password == "" {
+		return TokenResponse{}, ErrInvalidCredentials
+	}
+
+	user, passwordHash, err := s.authRepo.GetPasswordHashByEmail(email)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return TokenResponse{}, ErrInvalidCredentials
+		}
+		return TokenResponse{}, err
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(password)); err != nil {
+		return TokenResponse{}, ErrInvalidCredentials
+	}
+
+	return s.issueTokenResponse(user)
+}
+
+func (s *serviceImpl) RegisterWithPassword(ctx context.Context, email string, password string) error {
+	email = normalizeEmail(email)
+	if email == "" {
+		return ErrEmailRequired
+	}
+
+	if _, err := s.userService.GetUserByEmail(email); err == nil {
+		return ErrEmailAlreadyExists
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+
+	passwordHash, err := hashPassword(password)
+	if err != nil {
+		return err
+	}
+
+	username := deriveUsername("", email, "")
+	userID, err := s.userService.CreateUser(dto.UserToCreate{Username: username, Email: email})
+	if err != nil {
+		return err
+	}
+
+	user, err := s.userService.GetUserByID(userID)
+	if err != nil {
+		user = dto.User{ID: userID, Username: username, Email: email}
+	}
+
+	if err := s.authRepo.UpsertPassword(user.ID, passwordHash); err != nil {
+		return err
+	}
+
+	token, tokenHash, err := generateEmailToken()
+	if err != nil {
+		return err
+	}
+
+	confirmationURL := strings.TrimRight(s.cfg.OAuthConfig().FrontendBase, "/") + "/login?confirm_token=" + token
+	if err := s.authRepo.CreateEmailToken(user.ID, tokenHash, "registration_confirm", time.Now().Add(24*time.Hour)); err != nil {
+		return err
+	}
+	return s.email.SendEmailConfirmation(ctx, user.Email, confirmationURL)
+}
+
+func (s *serviceImpl) ConfirmRegistration(ctx context.Context, token string) (TokenResponse, error) {
+	user, err := s.authRepo.ConsumeEmailToken(hashEmailToken(token), "registration_confirm")
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return TokenResponse{}, ErrInvalidEmailToken
+		}
+		return TokenResponse{}, err
+	}
+
+	if err := s.userService.SetUserConfirmed(user.ID, true, user.ID); err != nil {
+		return TokenResponse{}, err
+	}
+
+	user.Confirmed = true
+	now := time.Now()
+	user.ConfirmedAt = &now
+	confirmedBy := user.ID
+	user.ConfirmedBy = &confirmedBy
+
+	return s.issueTokenResponse(user)
+}
+
+func (s *serviceImpl) SetPassword(ctx context.Context, userID string, password string) error {
+	if strings.TrimSpace(userID) == "" {
+		return pgx.ErrNoRows
+	}
+	passwordHash, err := hashPassword(password)
+	if err != nil {
+		return err
+	}
+	return s.authRepo.UpsertPassword(userID, passwordHash)
+}
+
+func (s *serviceImpl) RequestPasswordSetup(ctx context.Context, email string) error {
+	email = normalizeEmail(email)
+	if email == "" {
+		logger.Info("password setup: skipped empty email")
+		return nil
+	}
+
+	logger.Info("password setup: lookup user",
+		slog.String("email", email),
+	)
+	user, err := s.userService.GetUserByEmail(email)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			logger.Info("password setup: user not found",
+				slog.String("email", email),
+			)
+			return nil
+		}
+		logger.Error("password setup: user lookup failed",
+			slog.String("email", email),
+			slog.String("err", err.Error()),
+		)
+		return err
+	}
+	logger.Info("password setup: user found",
+		slog.String("email", email),
+		slog.String("user_id", user.ID),
+	)
+
+	token, tokenHash, err := generateEmailToken()
+	if err != nil {
+		logger.Error("password setup: token generation failed",
+			slog.String("email", email),
+			slog.String("user_id", user.ID),
+			slog.String("err", err.Error()),
+		)
+		return err
+	}
+
+	oauthCfg := s.cfg.OAuthConfig()
+	setupURL := strings.TrimRight(oauthCfg.FrontendBase, "/") + "/login?setup_token=" + token
+	if err := s.authRepo.CreateEmailToken(user.ID, tokenHash, "password_setup", time.Now().Add(30*time.Minute)); err != nil {
+		logger.Error("password setup: token persistence failed",
+			slog.String("email", email),
+			slog.String("user_id", user.ID),
+			slog.String("err", err.Error()),
+		)
+		return err
+	}
+	logger.Info("password setup: token persisted",
+		slog.String("email", email),
+		slog.String("user_id", user.ID),
+	)
+	if err := s.email.SendPasswordSetup(ctx, user.Email, setupURL); err != nil {
+		logger.Error("password setup: email delivery failed",
+			slog.String("email", email),
+			slog.String("user_id", user.ID),
+			slog.String("err", err.Error()),
+		)
+		return err
+	}
+	logger.Info("password setup: email sent",
+		slog.String("email", email),
+		slog.String("user_id", user.ID),
+	)
+	return nil
+}
+
+func (s *serviceImpl) ConfirmPasswordSetup(ctx context.Context, token string, password string) (TokenResponse, error) {
+	passwordHash, err := hashPassword(password)
+	if err != nil {
+		return TokenResponse{}, err
+	}
+
+	user, err := s.authRepo.ConsumeEmailToken(hashEmailToken(token), "password_setup")
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return TokenResponse{}, ErrInvalidEmailToken
+		}
+		return TokenResponse{}, err
+	}
+
+	if err := s.authRepo.UpsertPassword(user.ID, passwordHash); err != nil {
+		return TokenResponse{}, err
+	}
+
+	return s.issueTokenResponse(user)
 }
 
 func (s *serviceImpl) exchangeOAuthCode(ctx context.Context, cfg *oauth2.Config, code string) (*http.Client, error) {
@@ -479,6 +687,35 @@ func deriveUsername(name, email, fallback string) string {
 	}
 
 	return "user"
+}
+
+func normalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
+func hashPassword(password string) (string, error) {
+	if len([]rune(password)) < 8 {
+		return "", ErrPasswordTooShort
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
+}
+
+func generateEmailToken() (raw string, hash string, err error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", "", err
+	}
+	raw = base64.RawURLEncoding.EncodeToString(buf)
+	return raw, hashEmailToken(raw), nil
+}
+
+func hashEmailToken(raw string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(raw)))
+	return hex.EncodeToString(sum[:])
 }
 
 func hasAudience(audience jwt.ClaimStrings, value string) bool {

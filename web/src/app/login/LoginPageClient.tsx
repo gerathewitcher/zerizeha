@@ -1,11 +1,15 @@
 "use client";
 
+import type { FormEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
 
 import {
-  loginWithGithub,
-  loginWithGoogle,
+  confirmRegistration,
+  confirmPasswordSetup,
+  loginWithPassword,
   loginWithYandex,
+  registerWithPassword,
+  requestPasswordSetup,
 } from "@/lib/api/auth";
 import { health } from "@/lib/api/generated/zerizeha-components";
 import DesktopDownloadButton from "@/components/ui/DesktopDownloadButton";
@@ -13,6 +17,20 @@ import ErrorState from "@/components/ui/ErrorState";
 
 export default function LoginPageClient() {
   const [status, setStatus] = useState<"ok" | "error" | "loading">("loading");
+  const [setupToken, setSetupToken] = useState("");
+  const [confirmToken, setConfirmToken] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "register" | "reset">(
+    "login",
+  );
+  const [formStatus, setFormStatus] = useState<"idle" | "submitting" | "sent">(
+    "idle",
+  );
+  const [formError, setFormError] = useState("");
 
   const checkHealth = useCallback(() => {
     const controller = new AbortController();
@@ -29,6 +47,179 @@ export default function LoginPageClient() {
   }, []);
 
   useEffect(() => checkHealth(), [checkHealth]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    setSetupToken(params.get("setup_token") ?? "");
+    setConfirmToken(params.get("confirm_token") ?? "");
+  }, []);
+
+  const goToSpaces = () => {
+    window.location.assign("/spaces");
+  };
+
+  useEffect(() => {
+    if (!confirmToken) return;
+
+    setFormError("");
+    setFormStatus("submitting");
+    confirmRegistration(confirmToken)
+      .then(goToSpaces)
+      .catch((err) => {
+        console.error("Registration confirmation failed", err);
+        setFormError("Ссылка подтверждения недействительна или устарела.");
+        setFormStatus("idle");
+      });
+  }, [confirmToken]);
+
+  const handlePasswordLogin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setFormError("");
+    setFormStatus("submitting");
+    try {
+      await loginWithPassword(email, password);
+      goToSpaces();
+    } catch (err) {
+      console.error("Password login failed", err);
+      setFormError("Не удалось войти. Проверь email и пароль.");
+      setFormStatus("idle");
+    }
+  };
+
+  const handlePasswordRegister = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setFormError("");
+    if (password !== confirmPassword) {
+      setFormError("Пароли не совпадают.");
+      return;
+    }
+    setFormStatus("submitting");
+    try {
+      await registerWithPassword(email, password);
+      setFormStatus("sent");
+    } catch (err) {
+      console.error("Password registration failed", err);
+      setFormError("Не удалось зарегистрироваться. Возможно, этот email уже используется.");
+      setFormStatus("idle");
+    }
+  };
+
+  const handlePasswordSetupRequest = async (
+    event?: FormEvent<HTMLFormElement>,
+  ) => {
+    event?.preventDefault();
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail) {
+      setFormError("Укажи email аккаунта.");
+      return;
+    }
+    setFormError("");
+    setFormStatus("submitting");
+    try {
+      await requestPasswordSetup(normalizedEmail);
+      setFormStatus("sent");
+    } catch (err) {
+      console.error("Password setup request failed", err);
+      setFormError("Не удалось отправить письмо. Попробуй позже.");
+      setFormStatus("idle");
+    }
+  };
+
+  const handlePasswordSetupConfirm = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setFormError("");
+    if (password !== confirmPassword) {
+      setFormError("Пароли не совпадают.");
+      return;
+    }
+    setFormStatus("submitting");
+    try {
+      await confirmPasswordSetup(setupToken, password);
+      goToSpaces();
+    } catch (err) {
+      console.error("Password setup failed", err);
+      setFormError("Ссылка недействительна или пароль слишком короткий.");
+      setFormStatus("idle");
+    }
+  };
+
+  const switchAuthMode = (mode: "login" | "register" | "reset") => {
+    setAuthMode(mode);
+    setFormError("");
+    setFormStatus("idle");
+    setPassword("");
+    setConfirmPassword("");
+    setShowPassword(false);
+    setShowConfirmPassword(false);
+  };
+
+  const passwordInput = ({
+    label,
+    value,
+    onChange,
+    visible,
+    onToggle,
+  }: {
+    label: string;
+    value: string;
+    onChange: (value: string) => void;
+    visible: boolean;
+    onToggle: () => void;
+  }) => (
+    <label className="flex flex-col gap-2 text-sm">
+      <span className="font-medium">{label}</span>
+      <span className="relative">
+        <input
+          type={visible ? "text" : "password"}
+          minLength={8}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="w-full rounded-xl border border-(--border) bg-(--panel-2) px-4 py-3 pr-12 text-(--text) outline-none transition focus:border-(--accent)"
+          required
+        />
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={visible ? "Скрыть пароль" : "Показать пароль"}
+          title={visible ? "Скрыть пароль" : "Показать пароль"}
+          className="absolute right-3 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-(--muted) transition hover:text-(--accent)"
+        >
+          {visible ? (
+            <svg
+              aria-hidden="true"
+              className="h-4 w-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M3 3l18 18" />
+              <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
+              <path d="M9.9 4.2A10.4 10.4 0 0 1 12 4c5 0 9 4.5 10 8a11.8 11.8 0 0 1-2.1 3.5" />
+              <path d="M6.6 6.6C4.4 8.1 2.8 10.3 2 12c1 3.5 5 8 10 8a10.8 10.8 0 0 0 4.1-.8" />
+            </svg>
+          ) : (
+            <svg
+              aria-hidden="true"
+              className="h-4 w-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M2 12s4-8 10-8 10 8 10 8-4 8-10 8S2 12 2 12z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          )}
+        </button>
+      </span>
+    </label>
+  );
 
   if (status === "error") {
     return (
@@ -82,76 +273,193 @@ export default function LoginPageClient() {
             <div className="w-full rounded-2xl border border-(--border) bg-(--panel) p-8 shadow-(--shadow-2)">
               <div className="mb-8">
                 <h2 className="font-(--font-display) text-2xl">
-                  Вход в Zerizeha
+                  {setupToken
+                    ? "Установка пароля"
+                    : confirmToken
+                      ? "Подтверждение регистрации"
+                    : authMode === "reset"
+                      ? "Восстановление пароля"
+                    : authMode === "login"
+                      ? "Вход в Zerizeha"
+                      : "Регистрация в Zerizeha"}
                 </h2>
                 <p className="mt-2 text-sm text-(--muted)">
-                  Используй Google, GitHub или Yandex, чтобы продолжить.
+                  {setupToken
+                    ? "Придумай новый пароль для своего аккаунта."
+                    : confirmToken
+                      ? "Проверяем ссылку из письма."
+                    : authMode === "reset"
+                      ? "Укажи email аккаунта, и мы отправим ссылку для установки нового пароля."
+                    : authMode === "login"
+                      ? "Войди по email и паролю или подключи пароль к существующему аккаунту."
+                      : "Создай аккаунт по email и подтверди его письмом."}
                 </p>
               </div>
 
-              <div className="flex flex-col gap-3">
-                <button
-                  type="button"
-                  onClick={loginWithGoogle}
-                  className="flex w-full items-center justify-between rounded-xl border border-(--border) bg-(--panel-2) px-4 py-3 text-left text-sm font-medium transition hover:border-(--accent) hover:text-(--accent)"
+              {confirmToken ? (
+                <div className="flex flex-col gap-3">
+                  {formError ? (
+                    <p className="text-sm text-red-300">{formError}</p>
+                  ) : (
+                    <p className="text-sm text-(--muted)">
+                      {formStatus === "submitting"
+                        ? "Подтверждаем email..."
+                        : "Email подтвержден."}
+                    </p>
+                  )}
+                </div>
+              ) : setupToken ? (
+                <form className="flex flex-col gap-3" onSubmit={handlePasswordSetupConfirm}>
+                  {passwordInput({
+                    label: "Новый пароль",
+                    value: password,
+                    onChange: setPassword,
+                    visible: showPassword,
+                    onToggle: () => setShowPassword((value) => !value),
+                  })}
+                  {passwordInput({
+                    label: "Повтори пароль",
+                    value: confirmPassword,
+                    onChange: setConfirmPassword,
+                    visible: showConfirmPassword,
+                    onToggle: () => setShowConfirmPassword((value) => !value),
+                  })}
+                  {formError && <p className="text-sm text-red-300">{formError}</p>}
+                  <button
+                    type="submit"
+                    disabled={formStatus === "submitting"}
+                    className="rounded-xl border border-(--accent) bg-(--accent) px-4 py-3 text-sm font-semibold text-black transition disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {formStatus === "submitting" ? "Сохраняем..." : "Установить пароль"}
+                  </button>
+                </form>
+              ) : authMode === "reset" ? (
+                <form
+                  className="flex flex-col gap-3"
+                  onSubmit={handlePasswordSetupRequest}
                 >
-                  <span className="flex items-center gap-3">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-(--bg-2)">
-                      <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        xmlns="http://www.w3.org/2000/svg"
-                      >
-                        <path
-                          d="M21.6 12.227c0-.73-.06-1.435-.18-2.113H12v4h5.39a4.6 4.6 0 0 1-2 3.028v2.5h3.24c1.89-1.74 2.97-4.3 2.97-7.415Z"
-                          fill="#C9FF4F"
-                        />
-                        <path
-                          d="M12 22c2.7 0 4.97-.9 6.62-2.43l-3.24-2.5c-.9.6-2.05.97-3.38.97-2.6 0-4.8-1.76-5.58-4.13H3.06v2.6A10 10 0 0 0 12 22Z"
-                          fill="#A1A6AE"
-                        />
-                        <path
-                          d="M6.42 13.91a6 6 0 0 1 0-3.82V7.5H3.06a10 10 0 0 0 0 9l3.36-2.6Z"
-                          fill="#7C828B"
-                        />
-                        <path
-                          d="M12 6.07c1.47 0 2.8.5 3.85 1.5l2.88-2.87C16.96 3.18 14.69 2 12 2A10 10 0 0 0 3.06 7.5l3.36 2.6C7.2 7.83 9.4 6.07 12 6.07Z"
-                          fill="#FFB84D"
-                        />
-                      </svg>
-                    </span>
-                    Войти через Google
-                  </span>
-                  <span className="text-xs text-(--subtle)">OAuth</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={loginWithGithub}
-                  className="flex w-full items-center justify-between rounded-xl border border-(--border) bg-(--panel-2) px-4 py-3 text-left text-sm font-medium transition hover:border-(--accent) hover:text-(--accent)"
+                  <label className="flex flex-col gap-2 text-sm">
+                    <span className="font-medium">Email</span>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                      className="rounded-xl border border-(--border) bg-(--panel-2) px-4 py-3 text-(--text) outline-none transition focus:border-(--accent)"
+                      required
+                    />
+                  </label>
+                  {formError && <p className="text-sm text-red-300">{formError}</p>}
+                  {formStatus === "sent" && (
+                    <p className="text-sm text-(--muted)">
+                      Если аккаунт с таким email существует, письмо для установки пароля отправлено.
+                    </p>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={formStatus === "submitting"}
+                    className="rounded-xl border border-(--accent) bg-(--accent) px-4 py-3 text-sm font-semibold text-black transition disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {formStatus === "submitting" ? "Отправляем..." : "Отправить письмо"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => switchAuthMode("login")}
+                    className="w-fit self-start text-xs text-(--muted) transition hover:text-(--accent)"
+                  >
+                    Вернуться ко входу
+                  </button>
+                </form>
+              ) : (
+                <form
+                  className="flex flex-col gap-3"
+                  onSubmit={
+                    authMode === "login"
+                      ? handlePasswordLogin
+                      : handlePasswordRegister
+                  }
                 >
-                  <span className="flex items-center gap-3">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-(--bg-2)">
-                      <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        xmlns="http://www.w3.org/2000/svg"
-                      >
-                        <path
-                          d="M12 2c-5.52 0-10 4.48-10 10 0 4.42 2.87 8.17 6.84 9.49.5.1.68-.22.68-.48v-1.68c-2.78.6-3.37-1.19-3.37-1.19-.46-1.17-1.13-1.48-1.13-1.48-.92-.63.07-.62.07-.62 1.02.07 1.56 1.06 1.56 1.06.9 1.56 2.36 1.11 2.94.85.09-.66.35-1.11.63-1.37-2.22-.25-4.56-1.11-4.56-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.43 9.43 0 0 1 5 0c1.9-1.29 2.74-1.02 2.74-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.58 4.93.36.32.68.94.68 1.9v2.82c0 .26.18.59.69.48A10 10 0 0 0 22 12c0-5.52-4.48-10-10-10Z"
-                          fill="#EAECEF"
-                        />
-                      </svg>
-                    </span>
-                    Войти через GitHub
-                  </span>
-                  <span className="text-xs text-(--subtle)">OAuth</span>
-                </button>
+                  <div className="grid grid-cols-2 rounded-xl border border-(--border) bg-(--panel-2) p-1 text-sm">
+                    <button
+                      type="button"
+                      onClick={() => switchAuthMode("login")}
+                      className={`rounded-lg px-3 py-2 font-medium transition ${
+                        authMode === "login"
+                          ? "bg-(--accent) text-black"
+                          : "text-(--muted) hover:text-(--text)"
+                      }`}
+                    >
+                      Вход
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => switchAuthMode("register")}
+                      className={`rounded-lg px-3 py-2 font-medium transition ${
+                        authMode === "register"
+                          ? "bg-(--accent) text-black"
+                          : "text-(--muted) hover:text-(--text)"
+                      }`}
+                    >
+                      Регистрация
+                    </button>
+                  </div>
+                  <label className="flex flex-col gap-2 text-sm">
+                    <span className="font-medium">Email</span>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                      className="rounded-xl border border-(--border) bg-(--panel-2) px-4 py-3 text-(--text) outline-none transition focus:border-(--accent)"
+                      required
+                    />
+                  </label>
+                  {passwordInput({
+                    label: "Пароль",
+                    value: password,
+                    onChange: setPassword,
+                    visible: showPassword,
+                    onToggle: () => setShowPassword((value) => !value),
+                  })}
+                  {authMode === "register" &&
+                    passwordInput({
+                      label: "Повтори пароль",
+                      value: confirmPassword,
+                      onChange: setConfirmPassword,
+                      visible: showConfirmPassword,
+                      onToggle: () => setShowConfirmPassword((value) => !value),
+                    })}
+                  {formError && <p className="text-sm text-red-300">{formError}</p>}
+                  {formStatus === "sent" && (
+                    <p className="text-sm text-(--muted)">
+                      Мы отправили письмо для подтверждения регистрации.
+                    </p>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={formStatus === "submitting"}
+                    className="rounded-xl border border-(--accent) bg-(--accent) px-4 py-3 text-sm font-semibold text-black transition disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {formStatus === "submitting"
+                      ? authMode === "login"
+                        ? "Входим..."
+                        : "Создаем..."
+                      : authMode === "login"
+                        ? "Войти"
+                        : "Зарегистрироваться"}
+                  </button>
+                  {authMode === "login" && (
+                    <button
+                      type="button"
+                      onClick={() => switchAuthMode("reset")}
+                      disabled={formStatus === "submitting"}
+                      className="w-fit self-start text-xs text-(--muted) transition hover:text-(--accent) disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Забыли пароль?
+                    </button>
+                  )}
+                </form>
+              )}
 
+              <div className="mt-6 flex flex-col gap-3 border-t border-(--border) pt-6">
                 <button
                   type="button"
                   onClick={loginWithYandex}
