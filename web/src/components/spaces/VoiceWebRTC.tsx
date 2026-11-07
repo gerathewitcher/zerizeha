@@ -477,6 +477,7 @@ export default function VoiceWebRTC({
     let audioCtx: AudioContext | null = null;
 
     let localStream: MediaStream | null = null;
+    let localStreamPromise: Promise<MediaStream> | null = null;
     let client: SignalingClient | null = null;
     let ws: WebSocket | null = null;
     let selfFeedId = "";
@@ -566,6 +567,13 @@ export default function VoiceWebRTC({
       onLocalScreenStreamRef.current?.(null);
       onScreenShareStateChangeRef.current?.(false);
       onScreenSharesChangeRef.current?.([]);
+
+      localStreamPromise
+        ?.then((stream) => {
+          if (localStream) return;
+          for (const t of stream.getTracks()) t.stop();
+        })
+        .catch(() => {});
 
       if (localStream) {
         for (const t of localStream.getTracks()) t.stop();
@@ -1120,6 +1128,19 @@ export default function VoiceWebRTC({
         }
         notifyScreenShares();
 
+        // Микрофон открываем параллельно с запросами к Janus. Раньше это
+        // ожидание стояло на критическом пути и сдвигало publish_offer.
+        localStreamPromise = navigator.mediaDevices
+          .getUserMedia({
+            audio: inputDeviceId ? { deviceId: { exact: inputDeviceId } } : true,
+            video: false,
+          })
+          .catch(() => {
+            if (!inputDeviceId) throw new Error("getUserMedia failed");
+            return navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+          });
+        localStreamPromise.catch(() => {});
+
         try {
           localStream = await navigator.mediaDevices.getUserMedia({
             audio: inputDeviceId ? { deviceId: { exact: inputDeviceId } } : true,
@@ -1132,7 +1153,11 @@ export default function VoiceWebRTC({
             video: false,
           });
         }
-        if (cancelled) return;
+        localStream = await localStreamPromise;
+        if (cancelled) {
+          for (const t of localStream.getTracks()) t.stop();
+          return;
+        }
         localStreamRef.current = localStream;
 
         // Local speaking indicator works even when you're alone.
